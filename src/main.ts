@@ -1,130 +1,865 @@
-
-import { app, BrowserWindow, WebContentsView, ipcMain } from 'electron';
+import {
+  app,
+  BrowserWindow,
+  Menu,
+  WebContentsView,
+  ipcMain,
+  nativeTheme,
+  session,
+  shell,
+  type Input,
+  type WebContents,
+} from 'electron';
+import fs from 'node:fs';
 import path from 'node:path';
+import started from 'electron-squirrel-startup';
+import {
+  DEFAULT_SETTINGS,
+  SEARCH_ENGINES,
+  THEME_BACKGROUNDS,
+  THEMES,
+  type BrowserState,
+  type SearchEngine,
+  type Settings,
+  type Theme,
+  type TabInfo,
+  type TabsState,
+} from './shared';
 
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string;
 declare const MAIN_WINDOW_VITE_NAME: string;
 
-let window: BrowserWindow;
-let page: WebContentsView;
+// Windows installer (Squirrel) launches the app several times during
+// install/uninstall to create shortcuts. Quit right away in that case.
+if (started) app.quit();
 
-const TOOLBAR_HEIGHT = 64;
+// Electron's default user agent contains "Electron/x.y.z" and the app name.
+// Some sites (Google sign-in especially) block that, so present a plain
+// Chrome user agent instead.
+app.userAgentFallback = app.userAgentFallback
+  .replace(/\sElectron\/\S+/, '')
+  .replace(new RegExp(`\\s${app.getName()}\\/\\S+`, 'i'), '');
 
-function navigate(input: string) {
-  const value = input.trim();
-  if (!value) return;
+// Must match --control-lg, --sidebar-width and --sidebar-collapsed in
+// index.css (see the design rules in CLAUDE.md).
+const TOOLBAR_HEIGHT = 48;
+const SIDEBAR_WIDTH = 240;
+const SIDEBAR_COLLAPSED_WIDTH = 48;
 
-  let url: string;
+const APP_NAME = 'My Browser';
+const MAX_CLOSED_TABS = 25;
 
-  if (/^https?:\/\//i.test(value)) {
-    url = value;
-  } else if (
-    /^(localhost|127\.0\.0\.1)(:\d+)?(\/.*)?$/i.test(value)
-  ) {
-    url = `http://${value}`;
-  } else if (
-    /^[^\s.]+\.[^\s]+$/.test(value)
-  ) {
-    url = `https://${value}`;
-  } else {
-    url = `https://www.google.com/search?q=${encodeURIComponent(value)}`;
-  }
+// Permissions websites get without asking. Everything else (camera, mic,
+// location, notifications, USB...) is denied until we build a prompt for it.
+const ALLOWED_PERMISSIONS = new Set([
+  'fullscreen',
+  'clipboard-sanitized-write',
+  'pointerLock',
+]);
 
-  const parsed = new URL(url);
-  if (!['http:', 'https:'].includes(parsed.protocol)) return;
-
-  page.webContents.loadURL(url).catch(console.error);
+interface Tab {
+  id: number;
+  view: WebContentsView;
+  title: string;
+  favicon: string | null;
+  /** URL of a page that failed to load (we show an error page instead). */
+  failedUrl: string | null;
+  /** True until the first website loads: we show our search page instead. */
+  isNewTab: boolean;
+  /** Give focus back to the address bar once the first page has loaded. */
+  focusAddressOnLoad: boolean;
 }
 
-function createWindow() {
-  window = new BrowserWindow({
-    width: 1280,
-    height: 800,
-    minWidth: 600,
-    minHeight: 400,
-    webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
-      nodeIntegration: false,
-      contextIsolation: true,
-      sandbox: true,
-    },
-  });
+let window: BrowserWindow | null = null;
+let tabs: Tab[] = [];
+let activeTabId: number | null = null;
+let nextTabId = 1;
+let closedTabUrls: string[] = [];
+let htmlFullScreen = false;
+let settingsOpen = false;
 
-  page = new WebContentsView({
-    webPreferences: {
-      nodeIntegration: false,
-      contextIsolation: true,
-      sandbox: true,
-    },
-  });
+// ---------------------------------------------------------------- settings
 
-  window.contentView.addChildView(page);
+const settingsFile = () => path.join(app.getPath('userData'), 'settings.json');
+let settings: Settings = { ...DEFAULT_SETTINGS };
 
-  const resize = () => {
-    const [width, height] = window.getContentSize();
+function loadSettings() {
+  try {
+    // Strip a byte-order mark some editors add, or JSON.parse fails.
+    const text = fs.readFileSync(settingsFile(), 'utf-8').replace(/^﻿/, '');
+    const saved = JSON.parse(text);
+    settings = sanitizeSettings({ ...DEFAULT_SETTINGS, ...saved });
+  } catch {
+    settings = { ...DEFAULT_SETTINGS };
+  }
+}
 
-    page.setBounds({
-      x: 0,
-      y: TOOLBAR_HEIGHT,
-      width,
-      height: Math.max(0, height - TOOLBAR_HEIGHT),
-    });
+function saveSettings() {
+  try {
+    fs.writeFileSync(settingsFile(), JSON.stringify(settings, null, 2));
+  } catch (error) {
+    console.error('Could not save settings', error);
+  }
+}
+
+/** Never trust values coming from the UI or from disk. */
+function sanitizeSettings(value: Partial<Settings>): Settings {
+  const engine = value.searchEngine;
+  const homePageText =
+    typeof value.homePage === 'string' ? value.homePage.trim() : '';
+  // Empty means "use the clean search page".
+  const homePage = homePageText ? toUrl(homePageText, false) : '';
+  return {
+    searchEngine:
+      typeof engine === 'string' && engine in SEARCH_ENGINES
+        ? (engine as SearchEngine)
+        : DEFAULT_SETTINGS.searchEngine,
+    homePage: homePage ?? DEFAULT_SETTINGS.homePage,
+    sidebarCollapsed: value.sidebarCollapsed === true,
+    theme: THEMES.includes(value.theme as Theme)
+      ? (value.theme as Theme)
+      : DEFAULT_SETTINGS.theme,
+    accentColor:
+      typeof value.accentColor === 'string' &&
+      /^#[0-9a-f]{6}$/i.test(value.accentColor)
+        ? value.accentColor.toLowerCase()
+        : DEFAULT_SETTINGS.accentColor,
+  };
+}
+
+/** Applies the color mode to the window and tells websites about it. */
+function applyTheme() {
+  // Websites that support dark mode (prefers-color-scheme) follow our theme.
+  nativeTheme.themeSource = settings.theme === 'light' ? 'light' : 'dark';
+  if (window && !window.isDestroyed()) {
+    window.setBackgroundColor(THEME_BACKGROUNDS[settings.theme]);
+  }
+}
+
+function sendSettings() {
+  sendToUi('browser:settings', settings);
+}
+
+// ---------------------------------------------------------------- helpers
+
+function isWebUrl(url: string) {
+  return /^https?:\/\//i.test(url);
+}
+
+/**
+ * Turns whatever the user typed into a URL to load. Text that isn't a URL
+ * becomes a search, unless allowSearch is false.
+ */
+function toUrl(input: string, allowSearch = true): string | null {
+  const value = input.trim();
+  if (!value) return null;
+
+  let candidate: string;
+  if (isWebUrl(value)) {
+    candidate = value;
+  } else if (/^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?(\/.*)?$/i.test(value)) {
+    candidate = `http://${value}`;
+  } else if (/^[^\s.]+\.[^\s]+$/.test(value)) {
+    candidate = `https://${value}`;
+  } else {
+    return allowSearch ? searchUrl(value) : null;
+  }
+
+  try {
+    const parsed = new URL(candidate);
+    if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+      return parsed.href;
+    }
+  } catch {
+    // Not a valid URL (e.g. "https://"), search for it instead.
+  }
+  return allowSearch ? searchUrl(value) : null;
+}
+
+function searchUrl(text: string) {
+  return SEARCH_ENGINES[settings.searchEngine].url + encodeURIComponent(text);
+}
+
+function errorPage(url: string, description: string) {
+  const escape = (text: string) =>
+    text.replace(
+      /[&<>"']/g,
+      (c) =>
+        ({
+          '&': '&amp;',
+          '<': '&lt;',
+          '>': '&gt;',
+          '"': '&quot;',
+          "'": '&#39;',
+        })[c]!,
+    );
+  const html = `<!doctype html><meta charset="utf-8"><title>Can't reach this page</title>
+<style>body{font-family:system-ui,sans-serif;background:#111318;color:#e0e0e0;display:grid;place-items:center;height:100vh;margin:0}
+main{max-width:520px;padding:24px}h1{font-size:22px}code{color:#9fb4ff;word-break:break-all}p{color:#a0a4ad}</style>
+<main><h1>Can't reach this page</h1><p><code>${escape(url)}</code></p><p>${escape(description)}</p></main>`;
+  return `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
+}
+
+function uiContents(): WebContents | null {
+  if (!window || window.isDestroyed()) return null;
+  return window.webContents;
+}
+
+function sendToUi(channel: string, payload: unknown) {
+  uiContents()?.send(channel, payload);
+}
+
+// ---------------------------------------------------------------- tabs
+
+function findTab(id: number) {
+  return tabs.find((tab) => tab.id === id);
+}
+
+function activeTab(): Tab | null {
+  return activeTabId === null ? null : (findTab(activeTabId) ?? null);
+}
+
+function activeContents(): WebContents | null {
+  const tab = activeTab();
+  if (!tab || tab.view.webContents.isDestroyed()) return null;
+  return tab.view.webContents;
+}
+
+/** The URL to show for a tab (the failed URL instead of the error page). */
+function shownUrl(tab: Tab) {
+  if (tab.isNewTab) return '';
+  const current = tab.view.webContents.getURL();
+  return current.startsWith('data:') && tab.failedUrl ? tab.failedUrl : current;
+}
+
+function tabTitle(tab: Tab) {
+  if (tab.isNewTab) return 'New tab';
+  if (tab.title) return tab.title;
+  const url = shownUrl(tab);
+  try {
+    return new URL(url).hostname || 'New tab';
+  } catch {
+    return 'New tab';
+  }
+}
+
+function sendTabs() {
+  const payload: TabsState = {
+    tabs: tabs.map(
+      (tab): TabInfo => ({
+        id: tab.id,
+        title: tabTitle(tab),
+        url: shownUrl(tab),
+        favicon: tab.favicon,
+        loading: tab.view.webContents.isLoading(),
+        isNewTab: tab.isNewTab,
+      }),
+    ),
+    activeTabId,
+    sidebarCollapsed: settings.sidebarCollapsed,
+    fullScreen: htmlFullScreen,
+    settingsOpen,
+  };
+  sendToUi('browser:tabs', payload);
+}
+
+function sendState() {
+  const tab = activeTab();
+  if (!tab) return;
+  const contents = tab.view.webContents;
+  const state: BrowserState = {
+    url: shownUrl(tab),
+    canGoBack: contents.navigationHistory.canGoBack(),
+    canGoForward: contents.navigationHistory.canGoForward(),
+    loading: contents.isLoading(),
+  };
+  sendToUi('browser:state', state);
+}
+
+function updateWindowTitle() {
+  const tab = activeTab();
+  if (!window || window.isDestroyed()) return;
+  if (settingsOpen) window.setTitle(`Settings - ${APP_NAME}`);
+  else window.setTitle(tab ? `${tabTitle(tab)} - ${APP_NAME}` : APP_NAME);
+}
+
+/** Places the active tab's page next to the sidebar and under the toolbar. */
+function layout() {
+  if (!window || window.isDestroyed()) return;
+  const [width, height] = window.getContentSize();
+  const left = htmlFullScreen
+    ? 0
+    : settings.sidebarCollapsed
+      ? SIDEBAR_COLLAPSED_WIDTH
+      : SIDEBAR_WIDTH;
+  const top = htmlFullScreen ? 0 : TOOLBAR_HEIGHT;
+  const bounds = {
+    x: left,
+    y: top,
+    width: Math.max(0, width - left),
+    height: Math.max(0, height - top),
   };
 
-  window.on('resize', resize);
-  resize();
+  for (const tab of tabs) {
+    // The settings page covers the whole window and the new-tab search page
+    // is drawn by our UI, so hide the web page in both cases.
+    const visible = tab.id === activeTabId && !settingsOpen && !tab.isNewTab;
+    tab.view.setVisible(visible);
+    if (visible) tab.view.setBounds(bounds);
+  }
+}
 
-  const updateAddress = () => {
-    if (!window.isDestroyed()) {
-      window.webContents.send(
-        'browser:url-changed',
-        page.webContents.getURL()
-      );
+function activateTab(id: number) {
+  const tab = findTab(id);
+  if (!tab) return;
+  activeTabId = id;
+  settingsOpen = false;
+  layout();
+  sendTabs();
+  sendState();
+  updateWindowTitle();
+  if (tab.isNewTab) focusAddressBar();
+  else if (!tab.view.webContents.isDestroyed()) tab.view.webContents.focus();
+}
+
+function setSettingsOpen(open: boolean) {
+  if (settingsOpen === open) return;
+  settingsOpen = open;
+  layout();
+  sendTabs();
+  sendSettings();
+  updateWindowTitle();
+  if (open) uiContents()?.focus();
+  else if (activeTab()?.isNewTab) focusAddressBar();
+  else activeContents()?.focus();
+}
+
+async function clearBrowsingData() {
+  await session.defaultSession.clearStorageData();
+  await session.defaultSession.clearCache();
+  closedTabUrls = [];
+}
+
+/** Opens a tab. With no URL it shows the clean search page. */
+function createTab(
+  url: string | null,
+  options: { activate?: boolean; nextToActive?: boolean } = {},
+) {
+  const win = window;
+  if (!win || win.isDestroyed()) return null;
+  const { activate = true, nextToActive = false } = options;
+
+  const view = new WebContentsView({
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: true,
+    },
+  });
+  view.setBackgroundColor('#ffffff');
+  view.setVisible(false);
+
+  const tab: Tab = {
+    id: nextTabId++,
+    view,
+    title: '',
+    favicon: null,
+    failedUrl: null,
+    isNewTab: !url,
+    focusAddressOnLoad: false,
+  };
+
+  const activeIndex = tabs.findIndex((t) => t.id === activeTabId);
+  if (nextToActive && activeIndex !== -1) {
+    // Like Chrome: links open right below the tab they came from.
+    tabs.splice(activeIndex + 1, 0, tab);
+  } else {
+    tabs.push(tab);
+  }
+
+  win.contentView.addChildView(view);
+  wireTab(tab);
+
+  if (url) {
+    view.webContents.loadURL(url).catch(() => {
+      // Load errors are shown by the did-fail-load handler.
+    });
+  }
+
+  if (activate) activateTab(tab.id);
+  else sendTabs();
+  return tab;
+}
+
+function closeTab(id: number) {
+  const index = tabs.findIndex((tab) => tab.id === id);
+  if (index === -1) return;
+  const [tab] = tabs.splice(index, 1);
+
+  const url = shownUrl(tab);
+  if (isWebUrl(url)) {
+    closedTabUrls.push(url);
+    closedTabUrls = closedTabUrls.slice(-MAX_CLOSED_TABS);
+  }
+
+  if (window && !window.isDestroyed()) {
+    window.contentView.removeChildView(tab.view);
+  }
+  if (!tab.view.webContents.isDestroyed()) tab.view.webContents.close();
+
+  if (tabs.length === 0) {
+    // Closing the last tab closes the window, like other browsers.
+    activeTabId = null;
+    window?.close();
+    return;
+  }
+
+  if (activeTabId === id) {
+    // Prefer the tab below the closed one, otherwise the one above.
+    activateTab(tabs[Math.min(index, tabs.length - 1)].id);
+  } else {
+    sendTabs();
+  }
+}
+
+function moveTab(id: number, toIndex: number) {
+  const from = tabs.findIndex((tab) => tab.id === id);
+  if (from === -1) return;
+  const [tab] = tabs.splice(from, 1);
+  // toIndex counts the moved tab in its old place, so adjust when moving down.
+  const target = Math.max(
+    0,
+    Math.min(tabs.length, from < toIndex ? toIndex - 1 : toIndex),
+  );
+  tabs.splice(target, 0, tab);
+  sendTabs();
+}
+
+function cycleTab(step: number) {
+  if (tabs.length < 2) return;
+  const index = tabs.findIndex((tab) => tab.id === activeTabId);
+  activateTab(tabs[(index + step + tabs.length) % tabs.length].id);
+}
+
+function newTab() {
+  const tab = createTab(settings.homePage || null);
+  // A loading website can grab keyboard focus; keep it in the address bar.
+  if (tab && !tab.isNewTab) tab.focusAddressOnLoad = true;
+  focusAddressBar();
+}
+
+function reopenClosedTab() {
+  const url = closedTabUrls.pop();
+  if (url) createTab(url);
+}
+
+function toggleSidebar() {
+  settings.sidebarCollapsed = !settings.sidebarCollapsed;
+  saveSettings();
+  layout();
+  sendTabs();
+  sendSettings();
+}
+
+/** Hooks up all events for one tab's web page. */
+function wireTab(tab: Tab) {
+  const contents = tab.view.webContents;
+  const isActive = () => tab.id === activeTabId;
+
+  const changed = () => {
+    sendTabs();
+    if (isActive()) {
+      sendState();
+      updateWindowTitle();
     }
   };
 
-  page.webContents.on('did-navigate', updateAddress);
-  page.webContents.on('did-navigate-in-page', updateAddress);
+  contents.on('did-navigate', changed);
+  contents.on('did-navigate-in-page', changed);
+  contents.on('did-start-loading', changed);
+  contents.on('did-stop-loading', changed);
 
-  page.webContents.setWindowOpenHandler(() => ({
-    action: 'deny',
-  }));
+  contents.on('did-finish-load', () => {
+    if (!tab.focusAddressOnLoad) return;
+    tab.focusAddressOnLoad = false;
+    if (isActive()) focusAddressBar();
+  });
 
-  page.webContents.on('will-navigate', (event, url) => {
-    if (!/^https?:\/\//i.test(url)) event.preventDefault();
+  contents.on('did-start-navigation', (details) => {
+    if (!details.isMainFrame || details.isSameDocument) return;
+    if (!details.url.startsWith('data:')) tab.failedUrl = null;
+    if (tab.isNewTab) {
+      // First website in this tab: swap the search page for the web page.
+      tab.isNewTab = false;
+      if (isActive()) {
+        layout();
+        contents.focus();
+      }
+    }
+    tab.favicon = null;
+    tab.title = '';
+  });
+
+  contents.on(
+    'did-fail-load',
+    (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+      // -3 = ERR_ABORTED: the load was replaced by another one, not an error.
+      if (!isMainFrame || errorCode === -3) return;
+      tab.failedUrl = validatedURL;
+      contents
+        .loadURL(errorPage(validatedURL, errorDescription))
+        .catch(() => {});
+    },
+  );
+
+  contents.on('page-title-updated', (_event, title) => {
+    tab.title = title;
+    changed();
+  });
+
+  contents.on('page-favicon-updated', (_event, favicons) => {
+    tab.favicon =
+      favicons.find((icon) => /^(https?:|data:image\/)/i.test(icon)) ?? null;
+    sendTabs();
+  });
+
+  contents.on('before-input-event', (event, input) => {
+    if (handleShortcut(input)) event.preventDefault();
+  });
+
+  contents.setWindowOpenHandler(({ url, disposition }) => {
+    if (!isWebUrl(url)) return { action: 'deny' };
+
+    // Real popups (window.open with a size), e.g. OAuth sign-in windows,
+    // need to stay connected to the page that opened them.
+    if (disposition === 'new-window' && window) {
+      return {
+        action: 'allow',
+        overrideBrowserWindowOptions: {
+          width: 520,
+          height: 680,
+          parent: window,
+          autoHideMenuBar: true,
+          backgroundColor: '#ffffff',
+          webPreferences: {
+            nodeIntegration: false,
+            contextIsolation: true,
+            sandbox: true,
+          },
+        },
+      };
+    }
+
+    // target="_blank" links, Ctrl+click, middle click: open as a new tab.
+    createTab(url, {
+      activate: disposition !== 'background-tab',
+      nextToActive: true,
+    });
+    return { action: 'deny' };
+  });
+  contents.on('did-create-window', setUpPopup);
+
+  contents.on('will-navigate', (event, url) => {
+    if (isWebUrl(url)) return;
+    event.preventDefault();
+    // Let the OS handle email/phone links.
+    if (/^(mailto|tel):/i.test(url)) shell.openExternal(url).catch(() => {});
+  });
+
+  // Video/YouTube fullscreen: hide the sidebar and toolbar.
+  contents.on('enter-html-full-screen', () => {
+    htmlFullScreen = true;
+    window?.setFullScreen(true);
+    layout();
+    sendTabs();
+  });
+  contents.on('leave-html-full-screen', () => {
+    htmlFullScreen = false;
+    window?.setFullScreen(false);
+    layout();
+    sendTabs();
+  });
+
+  // A page can close itself with window.close().
+  contents.on('destroyed', () => {
+    if (findTab(tab.id)) closeTab(tab.id);
+  });
+}
+
+/** Popup windows (e.g. "Sign in with Google") opened by websites. */
+function setUpPopup(popup: BrowserWindow) {
+  popup.setMenuBarVisibility(false);
+  popup.webContents.setWindowOpenHandler(({ url }) => {
+    if (isWebUrl(url)) createTab(url);
+    return { action: 'deny' };
+  });
+  popup.webContents.on('will-navigate', (event, url) => {
+    if (!isWebUrl(url)) event.preventDefault();
+  });
+}
+
+// ---------------------------------------------------------------- actions
+
+function navigate(input: string) {
+  const url = toUrl(input);
+  const contents = activeContents();
+  if (!url) return;
+  if (!contents) {
+    createTab(url);
+    return;
+  }
+  contents.loadURL(url).catch(() => {});
+  contents.focus();
+}
+
+function goBack() {
+  const contents = activeContents();
+  if (contents?.navigationHistory.canGoBack()) {
+    contents.navigationHistory.goBack();
+  }
+}
+
+function goForward() {
+  const contents = activeContents();
+  if (contents?.navigationHistory.canGoForward()) {
+    contents.navigationHistory.goForward();
+  }
+}
+
+function reload(ignoreCache = false) {
+  const contents = activeContents();
+  if (!contents) return;
+  if (ignoreCache) contents.reloadIgnoringCache();
+  else contents.reload();
+}
+
+function changeZoom(delta: number | null) {
+  const contents = activeContents();
+  if (!contents) return;
+  const level = delta === null ? 0 : contents.getZoomLevel() + delta;
+  contents.setZoomLevel(Math.max(-5, Math.min(5, level)));
+}
+
+function focusAddressBar() {
+  const ui = uiContents();
+  if (!ui) return;
+  ui.focus();
+  ui.send('browser:focus-address');
+}
+
+/**
+ * Browser keyboard shortcuts. Attached to the UI and to every tab so they
+ * work no matter what has focus.
+ */
+function handleShortcut(input: Input): boolean {
+  if (input.type !== 'keyDown') return false;
+
+  const key = input.key.toLowerCase();
+  const ctrl = process.platform === 'darwin' ? input.meta : input.control;
+
+  if ((ctrl && key === 'l') || (input.alt && key === 'd')) {
+    focusAddressBar();
+  } else if (ctrl && input.shift && key === 't') {
+    reopenClosedTab();
+  } else if (ctrl && key === 't') {
+    newTab();
+  } else if (ctrl && (key === 'w' || key === 'f4')) {
+    if (activeTabId !== null) closeTab(activeTabId);
+  } else if (ctrl && key === 'tab') {
+    cycleTab(input.shift ? -1 : 1);
+  } else if (ctrl && key === 'pagedown') {
+    cycleTab(1);
+  } else if (ctrl && key === 'pageup') {
+    cycleTab(-1);
+  } else if (ctrl && /^[1-9]$/.test(key)) {
+    // Ctrl+1..8 jump to that tab, Ctrl+9 to the last one.
+    const index = key === '9' ? tabs.length - 1 : Number(key) - 1;
+    if (tabs[index]) activateTab(tabs[index].id);
+  } else if (ctrl && input.shift && key === 'b') {
+    toggleSidebar();
+  } else if (key === 'f5' || (ctrl && key === 'r')) {
+    reload(input.shift || (ctrl && key === 'f5'));
+  } else if (input.alt && key === 'arrowleft') {
+    goBack();
+  } else if (input.alt && key === 'arrowright') {
+    goForward();
+  } else if (ctrl && (key === '=' || key === '+')) {
+    changeZoom(0.5);
+  } else if (ctrl && key === '-') {
+    changeZoom(-0.5);
+  } else if (ctrl && key === '0') {
+    changeZoom(null);
+  } else if (key === 'f12' || (ctrl && input.shift && key === 'i')) {
+    activeContents()?.toggleDevTools();
+  } else if (ctrl && key === ',') {
+    setSettingsOpen(!settingsOpen);
+  } else if (key === 'escape' && settingsOpen) {
+    setSettingsOpen(false);
+  } else if (key === 'escape' && htmlFullScreen) {
+    activeContents()?.executeJavaScript('document.exitFullscreen()', true);
+  } else {
+    return false;
+  }
+  return true;
+}
+
+// ---------------------------------------------------------------- window
+
+function createWindow() {
+  htmlFullScreen = false;
+  settingsOpen = false;
+  tabs = [];
+  activeTabId = null;
+
+  const win = new BrowserWindow({
+    width: 1280,
+    height: 800,
+    minWidth: 700,
+    minHeight: 400,
+    title: APP_NAME,
+    backgroundColor: THEME_BACKGROUNDS[settings.theme],
+    autoHideMenuBar: true,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.cjs'),
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: true,
+    },
+  });
+  window = win;
+
+  win.on('resize', layout);
+  win.on('maximize', layout);
+  win.on('unmaximize', layout);
+  win.on('enter-full-screen', layout);
+  win.on('leave-full-screen', layout);
+
+  // Our own UI must never navigate away or open windows.
+  win.webContents.on('will-navigate', (event) => event.preventDefault());
+  // The window title shows the active tab, not the UI page's own <title>.
+  win.on('page-title-updated', (event) => event.preventDefault());
+  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  win.webContents.on('before-input-event', (event, input) => {
+    if (handleShortcut(input)) event.preventDefault();
+  });
+
+  // Send everything again when the UI (re)loads.
+  win.webContents.on('did-finish-load', () => {
+    sendSettings();
+    sendTabs();
+    sendState();
+  });
+
+  win.on('closed', () => {
+    const closing = tabs;
+    tabs = [];
+    activeTabId = null;
+    if (window === win) window = null;
+    for (const tab of closing) {
+      if (!tab.view.webContents.isDestroyed()) tab.view.webContents.close();
+    }
   });
 
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
-    window.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL);
+    win.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL);
   } else {
-    window.loadFile(
-      path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`)
+    win.loadFile(
+      path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`),
     );
   }
 
-  navigate('https://www.google.com');
+  createTab(settings.homePage || null);
+}
+
+function setUpMenu() {
+  if (process.platform === 'darwin') {
+    // macOS needs an app + Edit menu or copy/paste shortcuts stop working.
+    Menu.setApplicationMenu(
+      Menu.buildFromTemplate([{ role: 'appMenu' }, { role: 'editMenu' }]),
+    );
+  } else {
+    // On Windows/Linux the default menu's "Reload" would reload the UI
+    // instead of the page. Our shortcuts are handled in handleShortcut().
+    Menu.setApplicationMenu(null);
+  }
+}
+
+function setUpIpc() {
+  // Only accept messages from our own UI, never from web pages.
+  const fromUi = (sender: WebContents) => sender === uiContents();
+  const isId = (value: unknown): value is number =>
+    typeof value === 'number' && Number.isInteger(value);
+
+  ipcMain.on('browser:navigate', (event, url: unknown) => {
+    if (fromUi(event.sender) && typeof url === 'string') navigate(url);
+  });
+  ipcMain.on('browser:back', (event) => fromUi(event.sender) && goBack());
+  ipcMain.on('browser:forward', (event) => fromUi(event.sender) && goForward());
+  ipcMain.on('browser:reload', (event) => fromUi(event.sender) && reload());
+  ipcMain.on(
+    'browser:stop',
+    (event) => fromUi(event.sender) && activeContents()?.stop(),
+  );
+  ipcMain.on('browser:new-tab', (event) => fromUi(event.sender) && newTab());
+  ipcMain.on('browser:close-tab', (event, id: unknown) => {
+    if (fromUi(event.sender) && isId(id)) closeTab(id);
+  });
+  ipcMain.on('browser:activate-tab', (event, id: unknown) => {
+    if (fromUi(event.sender) && isId(id)) activateTab(id);
+  });
+  ipcMain.on('browser:move-tab', (event, id: unknown, toIndex: unknown) => {
+    if (fromUi(event.sender) && isId(id) && isId(toIndex)) moveTab(id, toIndex);
+  });
+  ipcMain.on(
+    'browser:toggle-sidebar',
+    (event) => fromUi(event.sender) && toggleSidebar(),
+  );
+  ipcMain.on('browser:set-settings-open', (event, open: unknown) => {
+    if (fromUi(event.sender) && typeof open === 'boolean') {
+      setSettingsOpen(open);
+    }
+  });
+  ipcMain.on('browser:update-settings', (event, changes: unknown) => {
+    if (!fromUi(event.sender) || typeof changes !== 'object' || !changes) {
+      return;
+    }
+    const before = settings.sidebarCollapsed;
+    const beforeTheme = settings.theme;
+    settings = sanitizeSettings({ ...settings, ...changes });
+    saveSettings();
+    sendSettings();
+    if (settings.theme !== beforeTheme) applyTheme();
+    if (settings.sidebarCollapsed !== before) {
+      layout();
+      sendTabs();
+    }
+  });
+  ipcMain.handle('browser:clear-data', async (event) => {
+    if (!fromUi(event.sender)) return false;
+    await clearBrowsingData();
+    return true;
+  });
 }
 
 app.whenReady().then(() => {
-  ipcMain.on('browser:navigate', (_event, url: string) => {
-    if (typeof url === 'string') navigate(url);
-  });
+  session.defaultSession.setPermissionRequestHandler(
+    (_contents, permission, callback) => {
+      callback(ALLOWED_PERMISSIONS.has(permission));
+    },
+  );
+  session.defaultSession.setPermissionCheckHandler((_contents, permission) =>
+    ALLOWED_PERMISSIONS.has(permission),
+  );
 
-  ipcMain.on('browser:back', () => {
-    if (page.webContents.navigationHistory.canGoBack())
-      page.webContents.navigationHistory.goBack();
-  });
-
-  ipcMain.on('browser:forward', () => {
-    if (page.webContents.navigationHistory.canGoForward())
-      page.webContents.navigationHistory.goForward();
-  });
-
-  ipcMain.on('browser:reload', () => {
-    page.webContents.reload();
-  });
-
+  loadSettings();
+  applyTheme();
+  setUpIpc();
+  setUpMenu();
   createWindow();
+
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  });
 });
 
 app.on('window-all-closed', () => {
