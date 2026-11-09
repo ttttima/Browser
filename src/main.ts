@@ -55,7 +55,7 @@ const TOOLBAR_HEIGHT = 48;
 const SIDEBAR_WIDTH = 240;
 const SIDEBAR_COLLAPSED_WIDTH = 48;
 
-const APP_NAME = 'My Browser';
+const APP_NAME = 'Browser';
 const MAX_CLOSED_TABS = 25;
 
 // Permissions websites get without asking. Everything else (camera, mic,
