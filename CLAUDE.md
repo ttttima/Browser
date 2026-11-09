@@ -64,7 +64,8 @@ exactly 8px above and below them.
 ### 6. Type scale
 
 - Only these sizes: 10 (letter badges only), 12 (secondary text, labels),
-  13 (all normal UI text), 16 (new-tab search), 24 (page titles).
+  13 (all normal UI text), 16 (new-tab search), 24 (page titles), 40 (new-tab headline only,
+  in Redaction 50).
 - Only two weights: 400 and 600.
 
 ### 7. Color and motion
@@ -74,6 +75,10 @@ exactly 8px above and below them.
 - The selected state is the same everywhere: `--accent-soft` background and
   `--text-strong` text (active tab, active settings category).
 - Hover is the same everywhere: `--hover` background.
+- Lines between sections (bars, sidebar edge, rows) use `--divider`, never
+  `--border`, so the "Section dividers" setting can hide them. Hidden lines
+  stay 1px wide and transparent so nothing shifts. New dividers must also
+  get a rule in the "smooth dividers" section of `index.css`.
 - One transition duration, `--duration` (150ms), on color/background/border/
   transform only.
 

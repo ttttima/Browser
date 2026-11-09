@@ -39,8 +39,15 @@
   --text-md: 13px;
   --text-lg: 16px;
   --text-xl: 24px;
+  --text-display: 40px;
   --weight: 400;
   --weight-bold: 600;
+
+  /* Lines between sections. Turned off by the "Section dividers" setting. */
+  --divider: var(--border);
+  /* Glow used by "Smooth dividers": blur and solid spread. */
+  --fade: var(--space-4);
+  --fade-spread: var(--space-3);
 
   /* Motion */
   --duration: 150ms;
@@ -151,6 +158,11 @@ body.sidebar-collapsed {
   --sidebar-width: var(--sidebar-collapsed);
 }
 
+/* Lines keep their 1px space when hidden, so nothing shifts. */
+body.no-dividers {
+  --divider: transparent;
+}
+
 body.fullscreen #sidebar,
 body.fullscreen #toolbar,
 body.settings-open #sidebar,
@@ -259,13 +271,26 @@ input::placeholder {
   height: var(--control-lg);
   flex-shrink: 0;
   padding: 0 var(--space-2);
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--divider);
   background: var(--panel);
+}
+
+/* The window has no system title bar: bars are where you drag it from.
+   Anything you click or type in must opt out, or it would drag instead. */
+.bar {
+  -webkit-app-region: drag;
+}
+
+.bar button,
+.bar input,
+.bar select,
+.bar a {
+  -webkit-app-region: no-drag;
 }
 
 .bar-end {
   justify-content: flex-end;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--divider);
   border-bottom: none;
 }
 
@@ -285,7 +310,7 @@ input::placeholder {
   min-height: 0;
   overflow: hidden;
   background: var(--panel);
-  border-right: 1px solid var(--border);
+  border-right: 1px solid var(--divider);
 }
 
 .sidebar-body {
@@ -479,20 +504,38 @@ body.sidebar-collapsed .tab-close {
   min-width: 0;
 }
 
+/* Quiet when idle: no box, just the site name centered in the bar.
+   Hover hints that it's clickable; the full input box appears only while
+   editing. */
 #address {
   flex: 1;
   min-width: 0;
-  margin-left: var(--space-1);
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
+  text-align: center;
+  transition:
+    background var(--duration),
+    border-color var(--duration),
+    color var(--duration);
+}
+
+#address:hover {
+  border-color: transparent;
+  background: var(--hover);
+  color: var(--text);
+}
+
+#address:focus {
+  border-color: var(--accent);
+  background: var(--input-bg);
   color: var(--text-strong);
+  text-align: left;
 }
 
-#reload .icon-stop,
-#reload.loading .icon-reload {
-  display: none;
-}
-
-#reload.loading .icon-stop {
-  display: block;
+/* Nothing loaded (new tab): no bar at all, not even on hover. */
+#address.empty:not(:focus) {
+  visibility: hidden;
 }
 
 /* ============================================================ new tab page */
@@ -513,6 +556,25 @@ body.sidebar-collapsed .tab-close {
 /* The address bar would duplicate the big search box. */
 body.start-open #address {
   visibility: hidden;
+}
+
+/* Headline above the search: 24px above the bar, centered with it. */
+.start-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-6);
+  width: min(var(--column), 100%);
+}
+
+.start-title {
+  margin: 0;
+  font-family: 'Redaction 50', Georgia, serif;
+  font-size: var(--text-display);
+  font-weight: var(--weight);
+  line-height: 1.2;
+  color: var(--text-strong);
+  text-align: center;
 }
 
 #start-form {
@@ -572,7 +634,7 @@ body.sidebar-collapsed #settings .label {
   flex-direction: column;
   min-height: 0;
   background: var(--panel);
-  border-right: 1px solid var(--border);
+  border-right: 1px solid var(--divider);
 }
 
 .settings-main {
@@ -627,7 +689,7 @@ body.sidebar-collapsed #settings .label {
   align-items: center;
   height: var(--control-lg);
   margin: 0;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--divider);
   color: var(--muted);
   font-size: var(--text-sm);
   font-weight: var(--weight-bold);
@@ -645,7 +707,7 @@ body.sidebar-collapsed #settings .label {
 }
 
 .setting-row + .setting-row {
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--divider);
 }
 
 .setting-row > span {
@@ -731,7 +793,7 @@ button.danger:hover:not(:disabled) {
   align-items: center;
   height: 100%;
   margin: 0;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--divider);
 }
 
 .shortcuts dt:nth-last-of-type(1),
@@ -942,4 +1004,216 @@ button.danger:hover:not(:disabled) {
 
 .accent-custom.selected .accent-custom-preview {
   background: var(--accent);
+}
+
+/* ============================================================ smooth dividers */
+
+/* No lines at all. Instead of fading each panel on its own (which leaves a
+   hard corner where they meet), the page area glows outward in its own color
+   and that glow fades into the panel color. One continuous gradient runs
+   around the whole page edge, with a rounded blend at the corner.
+
+   How: the window background becomes the panel color, the sidebar and bars
+   turn transparent and sit above, and #page-glow (exactly the page area)
+   casts a soft shadow in the page's edge color underneath them. The 1px line
+   space stays, transparent, so nothing shifts. */
+body.smooth-dividers {
+  background: var(--panel);
+}
+
+body.smooth-dividers #sidebar,
+body.smooth-dividers #toolbar,
+body.smooth-dividers .bar,
+body.smooth-dividers .settings-nav {
+  position: relative;
+  z-index: 1;
+  border-color: transparent;
+  background: transparent;
+}
+
+/* What the glow fades from: the website's sampled edge color, or the page
+   color on our own pages (new tab). */
+body {
+  --edge: var(--page-left, var(--bg));
+}
+
+body.start-open {
+  --edge: var(--bg);
+}
+
+#page-glow {
+  display: none;
+  grid-row: 2;
+  grid-column: 2;
+  pointer-events: none;
+}
+
+body.smooth-dividers #page-glow {
+  display: block;
+  background: var(--edge);
+  box-shadow: 0 0 var(--fade) var(--fade-spread) var(--edge);
+}
+
+/* Dithering: zero-mean noise (built in renderer.ts for the current theme)
+   over the whole window hides the banding of the dark gradient. It changes
+   each pixel by at most one brightness level, so text and icons look the
+   same. */
+body.smooth-dividers::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  background-image: var(--dither, none);
+  pointer-events: none;
+}
+
+body.smooth-dividers.fullscreen #page-glow,
+body.smooth-dividers.settings-open #page-glow {
+  display: none;
+}
+
+/* Settings uses the same idea: its content area glows into the nav and the
+   title bar. */
+body.smooth-dividers #settings {
+  position: relative;
+  z-index: 2;
+  background: var(--panel);
+}
+
+body.smooth-dividers .settings-content {
+  background: var(--bg);
+  box-shadow: 0 0 var(--fade) var(--fade-spread) var(--bg);
+}
+
+/* Lines between rows: fade out at both ends instead of stopping sharply. */
+body.smooth-dividers .card-title,
+body.smooth-dividers .setting-row + .setting-row,
+body.smooth-dividers .shortcuts dt,
+body.smooth-dividers .shortcuts dd {
+  border-image: linear-gradient(
+      to right,
+      transparent,
+      var(--divider) var(--fade),
+      var(--divider) calc(100% - var(--fade)),
+      transparent
+    )
+    1;
+}
+
+/* Shortcut rows are split in two cells: fade only on the outer ends. */
+body.smooth-dividers .shortcuts dt {
+  border-image: linear-gradient(
+      to right,
+      transparent,
+      var(--divider) var(--fade)
+    )
+    1;
+}
+
+body.smooth-dividers .shortcuts dd {
+  border-image: linear-gradient(
+      to left,
+      transparent,
+      var(--divider) var(--fade)
+    )
+    1;
+}
+
+/* A setting that does nothing right now (e.g. smoothing with no dividers). */
+.setting-row.disabled {
+  opacity: 0.4;
+}
+
+.setting-row.disabled .switch {
+  cursor: default;
+}
+
+/* ============================================================ window buttons */
+
+/* macOS-style traffic lights: 16px circles, 8px apart. The group has 4px
+   on the inside and 4px on the outside, so with the bar padding there is
+   12px to the address bar and 12px to the window edge. */
+.window-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: var(--control);
+  padding: 0 var(--space-1);
+  margin-left: var(--space-1);
+  -webkit-app-region: no-drag;
+}
+
+.light {
+  display: grid;
+  place-items: center;
+  width: var(--icon);
+  height: var(--icon);
+  min-width: var(--icon);
+  padding: 0;
+  border-radius: var(--radius-full);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.15);
+}
+
+/* Fixed macOS colors on purpose: they mean close / minimize / maximize
+   everywhere, independent of theme and accent. */
+.light-close,
+.light-close:hover:not(:disabled) {
+  background: #ff5f57;
+  color: #4d0000;
+}
+
+.light-minimize,
+.light-minimize:hover:not(:disabled) {
+  background: #febc2e;
+  color: #995700;
+}
+
+.light-maximize,
+.light-maximize:hover:not(:disabled) {
+  background: #28c840;
+  color: #006500;
+}
+
+.light-icon {
+  width: var(--space-2);
+  height: var(--space-2);
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 3;
+  stroke-linecap: round;
+  opacity: 0;
+  transition: opacity var(--duration);
+}
+
+.light-icon-fill {
+  fill: currentColor;
+  stroke: none;
+}
+
+/* Symbols appear on all three when hovering the group, like macOS. */
+.window-controls:hover .light-icon {
+  opacity: 1;
+}
+
+/* Window in the background: grey lights. */
+body.window-inactive .window-controls:not(:hover) .light {
+  background: var(--chip);
+}
+
+/* Settings: lights at the right end of the title bar, outside the centered
+   column so the title stays centered. */
+.settings-main .bar {
+  position: relative;
+}
+
+.settings-main .window-controls {
+  position: absolute;
+  top: 50%;
+  right: var(--space-2);
+  transform: translateY(-50%);
+}
+
+/* macOS draws its own native traffic lights. */
+body.platform-darwin .window-controls {
+  display: none;
 }

@@ -25,6 +25,12 @@ export interface TabsState {
   settingsOpen: boolean;
 }
 
+/** Background colors at the website's left and top edges (#rrggbb). */
+export interface PageEdges {
+  left: string | null;
+  top: string | null;
+}
+
 export type Theme = 'dark' | 'light' | 'oled';
 
 export const THEMES: Theme[] = ['dark', 'light', 'oled'];
@@ -54,6 +60,14 @@ export interface Settings {
   searchEngine: SearchEngine;
   homePage: string;
   sidebarCollapsed: boolean;
+  /** Show the lines between sections (sidebar, bars, rows). */
+  showDividers: boolean;
+  /** Soft, faded dividers instead of sharp 1px lines. */
+  smoothDividers: boolean;
+  /** Make websites without a dark mode dark (built-in forcer). */
+  forceDark: boolean;
+  /** Mouse wheel over the sidebar switches tabs. */
+  scrollTabs: boolean;
   theme: Theme;
   /** Main accent color as #rrggbb. */
   accentColor: string;
@@ -74,6 +88,10 @@ export const DEFAULT_SETTINGS: Settings = {
   // Empty = new tabs show the clean search page.
   homePage: '',
   sidebarCollapsed: false,
+  showDividers: true,
+  smoothDividers: false,
+  forceDark: false,
+  scrollTabs: false,
   theme: 'dark',
   accentColor: '#4f7cff',
 };

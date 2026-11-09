@@ -3,6 +3,7 @@ import {
   ACCENT_PRESETS,
   SEARCH_ENGINES,
   type BrowserState,
+  type PageEdges,
   type SearchEngine,
   type Settings,
   type Theme,
@@ -21,12 +22,16 @@ interface BrowserAPI {
   activateTab: (id: number) => void;
   moveTab: (id: number, toIndex: number) => void;
   toggleSidebar: () => void;
+  windowAction: (action: 'close' | 'minimize' | 'maximize') => void;
+  platform: string;
   setSettingsOpen: (open: boolean) => void;
   updateSettings: (changes: Partial<Settings>) => void;
   clearBrowsingData: () => Promise<boolean>;
   onStateChanged: (callback: (state: BrowserState) => void) => void;
   onTabsChanged: (callback: (state: TabsState) => void) => void;
   onSettingsChanged: (callback: (settings: Settings) => void) => void;
+  onPageEdges: (callback: (edges: PageEdges) => void) => void;
+  onWindowFocus: (callback: (focused: boolean) => void) => void;
   onFocusAddress: (callback: () => void) => void;
 }
 
@@ -42,12 +47,29 @@ const $ = <T extends HTMLElement>(selector: string) =>
 // ---------------------------------------------------------------- toolbar
 
 const address = $<HTMLInputElement>('#address');
-const back = $<HTMLButtonElement>('#back');
-const forward = $<HTMLButtonElement>('#forward');
-const reload = $<HTMLButtonElement>('#reload');
 
 let currentUrl = '';
-let loading = false;
+
+/**
+ * What the address bar shows while you're not editing it: just the site
+ * ("chatgpt.com"), without https://, www. or the rest of the address.
+ */
+function shortUrl(url: string) {
+  try {
+    const { protocol, hostname } = new URL(url);
+    if (protocol !== 'http:' && protocol !== 'https:') return '';
+    return hostname.replace(/^www\./, '');
+  } catch {
+    return '';
+  }
+}
+
+/** Puts the right text in the bar for its current state. */
+function showAddress() {
+  const editing = document.activeElement === address;
+  address.value = editing ? currentUrl : shortUrl(currentUrl);
+  address.classList.toggle('empty', !currentUrl);
+}
 
 function navigate() {
   window.browser.navigate(address.value);
@@ -59,15 +81,17 @@ address.addEventListener('keydown', (event) => {
     navigate();
   } else if (event.key === 'Escape') {
     // Undo what was typed and go back to the page's real URL.
-    address.value = currentUrl;
     address.blur();
   }
 });
 
-// Select the whole URL on the first click, like other browsers.
+// Editing shows the full address, selected, like other browsers.
 address.addEventListener('focus', () => {
   address.dataset.justFocused = '1';
+  showAddress();
+  address.select();
 });
+address.addEventListener('blur', showAddress);
 address.addEventListener('mouseup', (event) => {
   if (address.dataset.justFocused) {
     event.preventDefault();
@@ -76,33 +100,27 @@ address.addEventListener('mouseup', (event) => {
   }
 });
 
-back.addEventListener('click', () => window.browser.back());
-forward.addEventListener('click', () => window.browser.forward());
-reload.addEventListener('click', () => {
-  if (loading) window.browser.stop();
-  else window.browser.reload();
-});
-
 window.browser.onStateChanged((state) => {
   currentUrl = state.url;
-  loading = state.loading;
-
   // Don't overwrite what the user is typing.
-  if (document.activeElement !== address) address.value = state.url;
-
-  back.disabled = !state.canGoBack;
-  forward.disabled = !state.canGoForward;
-  reload.classList.toggle('loading', state.loading);
-  reload.title = state.loading ? 'Stop' : 'Refresh (F5)';
+  if (document.activeElement !== address) showAddress();
 });
 
 // The UI page loses focus when the user clicks into a website. Put the
 // real URL back so half-typed text doesn't stay in the address bar.
 window.addEventListener('blur', () => {
-  if (document.activeElement === address) {
-    address.value = currentUrl;
-    address.blur();
-  }
+  if (document.activeElement === address) address.blur();
+});
+
+// The website's real edge colors, so smooth dividers fade exactly into them.
+window.browser.onPageEdges((edges) => {
+  const style = document.documentElement.style;
+  const isColor = (value: string | null) =>
+    value !== null && /^#[0-9a-f]{6}$/i.test(value);
+  if (isColor(edges.left)) style.setProperty('--page-left', edges.left);
+  else style.removeProperty('--page-left');
+  if (isColor(edges.top)) style.setProperty('--page-top', edges.top);
+  else style.removeProperty('--page-top');
 });
 
 window.browser.onFocusAddress(() => {
@@ -129,6 +147,22 @@ startSearch.addEventListener('keydown', (event) => {
   if (event.key === 'Escape') startSearch.value = '';
 });
 
+// ---------------------------------------------------------------- window
+
+// Our own traffic-light window buttons (the window has no system title bar).
+document.body.classList.add(`platform-${window.browser.platform}`);
+for (const button of document.querySelectorAll<HTMLButtonElement>('.light')) {
+  button.addEventListener('click', () =>
+    window.browser.windowAction(
+      button.dataset.action as 'close' | 'minimize' | 'maximize',
+    ),
+  );
+}
+// Like macOS: grey lights while the window is in the background.
+window.browser.onWindowFocus((focused) =>
+  document.body.classList.toggle('window-inactive', !focused),
+);
+
 // ---------------------------------------------------------------- tabs
 
 const CLOSE_ICON =
@@ -137,6 +171,7 @@ const CLOSE_ICON =
 const tabList = $<HTMLUListElement>('#tabs');
 const tabElements = new Map<number, HTMLLIElement>();
 let tabOrder: number[] = [];
+let activeTabId: number | null = null;
 let draggedTabId: number | null = null;
 
 $('#new-tab').addEventListener('click', () => window.browser.newTab());
@@ -275,6 +310,7 @@ function renderTabs(state: TabsState) {
   }
 
   tabOrder = state.tabs.map((tab) => tab.id);
+  activeTabId = state.activeTabId;
 
   state.tabs.forEach((tab, index) => {
     let item = tabElements.get(tab.id);
@@ -303,12 +339,54 @@ function renderTabs(state: TabsState) {
 
 window.browser.onTabsChanged(renderTabs);
 
+// ---- scroll through tabs
+
+let scrollTabsEnabled = false;
+let wheelDelta = 0;
+
+/**
+ * With "Scroll through tabs" on, the wheel over the sidebar moves to the next
+ * or previous tab. Deltas are added up so one mouse notch = one tab, and a
+ * touchpad doesn't fly through every tab at once.
+ */
+$('#sidebar').addEventListener(
+  'wheel',
+  (event) => {
+    if (!scrollTabsEnabled || tabOrder.length < 2) return;
+    event.preventDefault();
+    wheelDelta += event.deltaY;
+    const NOTCH = 100;
+    if (Math.abs(wheelDelta) < NOTCH) return;
+    const step = Math.sign(wheelDelta);
+    wheelDelta = 0;
+    const index = tabOrder.indexOf(activeTabId ?? -1);
+    const next = tabOrder[index + step];
+    // Stop at the first and last tab instead of wrapping around.
+    if (next !== undefined) window.browser.activateTab(next);
+  },
+  { passive: false },
+);
+
 // ---------------------------------------------------------------- settings
 
 const settingsPage = $<HTMLElement>('#settings');
 const searchEngine = $<HTMLSelectElement>('#setting-search-engine');
 const homePage = $<HTMLInputElement>('#setting-home-page');
 const sidebarCollapsed = $<HTMLInputElement>('#setting-sidebar-collapsed');
+const showDividers = $<HTMLInputElement>('#setting-show-dividers');
+const forceDark = $<HTMLInputElement>('#setting-force-dark');
+const scrollTabs = $<HTMLInputElement>('#setting-scroll-tabs');
+const smoothDividers = $<HTMLInputElement>('#setting-smooth-dividers');
+const smoothDividersRow = $<HTMLElement>('#smooth-dividers-row');
+
+/** Applies both divider settings to the page. */
+function applyDividers(show: boolean, smooth: boolean) {
+  document.body.classList.toggle('no-dividers', !show);
+  document.body.classList.toggle('smooth-dividers', show && smooth);
+  // Smoothing only matters while dividers are shown.
+  smoothDividers.disabled = !show;
+  smoothDividersRow.classList.toggle('disabled', !show);
+}
 const clearData = $<HTMLButtonElement>('#clear-data');
 const openSettings = $<HTMLButtonElement>('#open-settings');
 
@@ -357,6 +435,22 @@ homePage.addEventListener('change', () =>
 );
 homePage.addEventListener('keydown', (event) => {
   if (event.key === 'Enter') homePage.blur();
+});
+showDividers.addEventListener('change', () => {
+  // Switch right away so it feels instant, then save.
+  applyDividers(showDividers.checked, smoothDividers.checked);
+  window.browser.updateSettings({ showDividers: showDividers.checked });
+});
+forceDark.addEventListener('change', () =>
+  window.browser.updateSettings({ forceDark: forceDark.checked }),
+);
+scrollTabs.addEventListener('change', () => {
+  scrollTabsEnabled = scrollTabs.checked;
+  window.browser.updateSettings({ scrollTabs: scrollTabs.checked });
+});
+smoothDividers.addEventListener('change', () => {
+  applyDividers(showDividers.checked, smoothDividers.checked);
+  window.browser.updateSettings({ smoothDividers: smoothDividers.checked });
 });
 sidebarCollapsed.addEventListener('change', () =>
   window.browser.updateSettings({ sidebarCollapsed: sidebarCollapsed.checked }),
@@ -452,6 +546,55 @@ accentCustomInput.addEventListener('change', () =>
   chooseAccent(accentCustomInput.value),
 );
 
+// ---- dithering
+
+/**
+ * Dark gradients only have a few brightness steps, so they show bands
+ * (especially on VA monitors). A tile of tiny noise that nudges pixels one
+ * level up or down hides the steps. It is built for the current panel color
+ * so it is zero-mean: it adds grain without making anything lighter or darker.
+ */
+let ditherFor = '';
+
+function updateDither() {
+  const panel = getComputedStyle(document.documentElement)
+    .getPropertyValue('--panel')
+    .trim();
+  if (panel === ditherFor) return;
+  ditherFor = panel;
+
+  const match = /^#([0-9a-f]{6})$/i.exec(panel);
+  if (!match) return;
+  const [r, g, b] = hexToRgb(panel);
+  const base = Math.max(1, Math.min(254, (r + g + b) / 3));
+
+  // Alpha so that one white pixel adds ~1 level and one black pixel
+  // removes ~1 level on this background.
+  const whiteAlpha = Math.max(1, Math.round(255 / (255 - base)));
+  const blackAlpha = Math.max(1, Math.round(255 / base));
+
+  const size = 128;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const context = canvas.getContext('2d');
+  if (!context) return;
+  const image = context.createImageData(size, size);
+  for (let i = 0; i < image.data.length; i += 4) {
+    const roll = Math.random();
+    if (roll < 1 / 3) {
+      image.data.set([255, 255, 255, whiteAlpha], i);
+    } else if (roll < 2 / 3) {
+      image.data.set([0, 0, 0, blackAlpha], i);
+    }
+  }
+  context.putImageData(image, 0, 0);
+  document.documentElement.style.setProperty(
+    '--dither',
+    `url("${canvas.toDataURL('image/png')}")`,
+  );
+}
+
 // ---- color mode
 
 const themeInputs = document.querySelectorAll<HTMLInputElement>(
@@ -462,12 +605,14 @@ for (const input of themeInputs) {
     if (!input.checked) return;
     // Switch right away so it feels instant, then save.
     document.documentElement.dataset.theme = input.value;
+    updateDither();
     window.browser.updateSettings({ theme: input.value as Theme });
   });
 }
 
 window.browser.onSettingsChanged((settings) => {
   document.documentElement.dataset.theme = settings.theme;
+  updateDither();
   applyAccent(settings.accentColor);
   for (const input of themeInputs) {
     input.checked = input.value === settings.theme;
@@ -475,4 +620,10 @@ window.browser.onSettingsChanged((settings) => {
   searchEngine.value = settings.searchEngine;
   if (document.activeElement !== homePage) homePage.value = settings.homePage;
   sidebarCollapsed.checked = settings.sidebarCollapsed;
+  showDividers.checked = settings.showDividers;
+  smoothDividers.checked = settings.smoothDividers;
+  forceDark.checked = settings.forceDark;
+  scrollTabs.checked = settings.scrollTabs;
+  scrollTabsEnabled = settings.scrollTabs;
+  applyDividers(settings.showDividers, settings.smoothDividers);
 });

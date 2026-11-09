@@ -8,6 +8,7 @@ import {
   session,
   shell,
   type Input,
+  type NativeImage,
   type WebContents,
 } from 'electron';
 import fs from 'node:fs';
@@ -19,6 +20,7 @@ import {
   THEME_BACKGROUNDS,
   THEMES,
   type BrowserState,
+  type PageEdges,
   type SearchEngine,
   type Settings,
   type Theme,
@@ -116,6 +118,10 @@ function sanitizeSettings(value: Partial<Settings>): Settings {
         : DEFAULT_SETTINGS.searchEngine,
     homePage: homePage ?? DEFAULT_SETTINGS.homePage,
     sidebarCollapsed: value.sidebarCollapsed === true,
+    showDividers: value.showDividers !== false,
+    smoothDividers: value.smoothDividers === true,
+    forceDark: value.forceDark === true,
+    scrollTabs: value.scrollTabs === true,
     theme: THEMES.includes(value.theme as Theme)
       ? (value.theme as Theme)
       : DEFAULT_SETTINGS.theme,
@@ -307,6 +313,73 @@ function layout() {
     tab.view.setVisible(visible);
     if (visible) tab.view.setBounds(bounds);
   }
+  samplePageEdgesSoon();
+}
+
+// ---------------------------------------------------------------- page edges
+
+/**
+ * Most common color in a captured strip of the page. Backgrounds are usually
+ * one flat color, so this ignores text and images that cross the strip.
+ */
+function dominantColor(image: NativeImage): string | null {
+  const bitmap = image.toBitmap(); // BGRA, 4 bytes per pixel
+  const counts = new Map<number, number>();
+  let best = -1;
+  let bestCount = 0;
+  for (let i = 0; i + 3 < bitmap.length; i += 4) {
+    const rgb = (bitmap[i + 2] << 16) | (bitmap[i + 1] << 8) | bitmap[i];
+    const count = (counts.get(rgb) ?? 0) + 1;
+    counts.set(rgb, count);
+    if (count > bestCount) {
+      best = rgb;
+      bestCount = count;
+    }
+  }
+  return best < 0 ? null : `#${best.toString(16).padStart(6, '0')}`;
+}
+
+let lastPageEdges = '';
+
+/**
+ * Smooth dividers fade the sidebar and toolbar into the page. Sample the
+ * website's real edge colors so the gradient ends exactly on them.
+ */
+async function samplePageEdges() {
+  const tab = activeTab();
+  const visible =
+    tab &&
+    !tab.isNewTab &&
+    !settingsOpen &&
+    !htmlFullScreen &&
+    settings.showDividers &&
+    settings.smoothDividers;
+  if (!tab || !visible || tab.view.webContents.isDestroyed()) return;
+
+  const { width, height } = tab.view.getBounds();
+  if (width < 8 || height < 8) return;
+  try {
+    const [left, top] = await Promise.all([
+      tab.view.webContents.capturePage({ x: 0, y: 0, width: 2, height }),
+      tab.view.webContents.capturePage({ x: 0, y: 0, width, height: 2 }),
+    ]);
+    const edges: PageEdges = {
+      left: dominantColor(left),
+      top: dominantColor(top),
+    };
+    const key = JSON.stringify(edges);
+    if (key === lastPageEdges || tab.id !== activeTabId) return;
+    lastPageEdges = key;
+    sendToUi('browser:page-edges', edges);
+  } catch {
+    // The page was closed or is not painted yet; try again next time.
+  }
+}
+
+/** Sample now and again shortly after, once late content has painted. */
+function samplePageEdgesSoon() {
+  void samplePageEdges();
+  setTimeout(() => void samplePageEdges(), 600);
 }
 
 function activateTab(id: number) {
@@ -351,12 +424,14 @@ function createTab(
 
   const view = new WebContentsView({
     webPreferences: {
+      // Only hosts the dark mode forcer; exposes nothing to websites.
+      preload: path.join(__dirname, 'tab-preload.cjs'),
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: true,
     },
   });
-  view.setBackgroundColor('#ffffff');
+  view.setBackgroundColor(tabBackground());
   view.setVisible(false);
 
   const tab: Tab = {
@@ -461,6 +536,26 @@ function toggleSidebar() {
   sendSettings();
 }
 
+// ---------------------------------------------------------------- dark mode
+
+/** Tab background before a page paints: dark while the forcer is on. */
+function tabBackground() {
+  return settings.forceDark ? '#0a0a0a' : '#ffffff';
+}
+
+/**
+ * The forcer itself lives in tab-preload.ts, inside each page, so it can
+ * decide before the first paint. Here we only tell open pages when the
+ * setting changes.
+ */
+function updateForcedDarkAll() {
+  for (const tab of tabs) {
+    if (tab.view.webContents.isDestroyed()) continue;
+    tab.view.setBackgroundColor(tabBackground());
+    tab.view.webContents.send('browser:force-dark', settings.forceDark);
+  }
+}
+
 /** Hooks up all events for one tab's web page. */
 function wireTab(tab: Tab) {
   const contents = tab.view.webContents;
@@ -478,6 +573,9 @@ function wireTab(tab: Tab) {
   contents.on('did-navigate-in-page', changed);
   contents.on('did-start-loading', changed);
   contents.on('did-stop-loading', changed);
+  contents.on('did-stop-loading', () => {
+    if (isActive()) samplePageEdgesSoon();
+  });
 
   contents.on('did-finish-load', () => {
     if (!tab.focusAddressOnLoad) return;
@@ -719,6 +817,11 @@ function createWindow() {
     title: APP_NAME,
     backgroundColor: THEME_BACKGROUNDS[settings.theme],
     autoHideMenuBar: true,
+    // No system title bar: our own bars go to the top edge and draw their
+    // own window buttons. macOS keeps its native traffic lights instead.
+    ...(process.platform === 'darwin'
+      ? { titleBarStyle: 'hiddenInset' as const }
+      : { frame: false }),
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       nodeIntegration: false,
@@ -729,6 +832,10 @@ function createWindow() {
   window = win;
 
   win.on('resize', layout);
+  // The UI page loses focus whenever you click into a website, so tell it
+  // about the real window focus (for the grey traffic lights).
+  win.on('focus', () => sendToUi('browser:window-focus', true));
+  win.on('blur', () => sendToUi('browser:window-focus', false));
   win.on('maximize', layout);
   win.on('unmaximize', layout);
   win.on('enter-full-screen', layout);
@@ -814,6 +921,16 @@ function setUpIpc() {
     'browser:toggle-sidebar',
     (event) => fromUi(event.sender) && toggleSidebar(),
   );
+  // Our own window buttons (the window has no system title bar).
+  ipcMain.on('browser:window', (event, action: unknown) => {
+    if (!fromUi(event.sender) || !window || window.isDestroyed()) return;
+    if (action === 'close') window.close();
+    else if (action === 'minimize') window.minimize();
+    else if (action === 'maximize') {
+      if (window.isMaximized()) window.unmaximize();
+      else window.maximize();
+    }
+  });
   ipcMain.on('browser:set-settings-open', (event, open: unknown) => {
     if (fromUi(event.sender) && typeof open === 'boolean') {
       setSettingsOpen(open);
@@ -825,14 +942,20 @@ function setUpIpc() {
     }
     const before = settings.sidebarCollapsed;
     const beforeTheme = settings.theme;
+    const beforeDark = settings.forceDark;
     settings = sanitizeSettings({ ...settings, ...changes });
     saveSettings();
     sendSettings();
     if (settings.theme !== beforeTheme) applyTheme();
+    if (settings.forceDark !== beforeDark) updateForcedDarkAll();
     if (settings.sidebarCollapsed !== before) {
       layout();
       sendTabs();
     }
+  });
+  // Read-only, used by tab-preload.ts in every website tab.
+  ipcMain.on('browser:force-dark-get', (event) => {
+    event.returnValue = settings.forceDark;
   });
   ipcMain.handle('browser:clear-data', async (event) => {
     if (!fromUi(event.sender)) return false;
@@ -854,6 +977,8 @@ app.whenReady().then(() => {
   loadSettings();
   applyTheme();
   setUpIpc();
+  // Pages change color as you scroll or switch dark mode: keep checking.
+  setInterval(() => void samplePageEdges(), 1500);
   setUpMenu();
   createWindow();
 

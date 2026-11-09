@@ -5,9 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: http:"
+      content="default-src 'self'; script-src 'self'; img-src 'self' data: https: http:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com"
     />
     <title>My Browser</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Redaction+50&display=swap"
+    />
   </head>
   <body>
     <aside id="sidebar">
@@ -52,29 +58,6 @@
     </aside>
 
     <div id="toolbar" class="bar">
-      <button id="back" class="icon-button" title="Back (Alt+←)" disabled>
-        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-          <line x1="19" y1="12" x2="5" y2="12" />
-          <polyline points="12 19 5 12 12 5" />
-        </svg>
-      </button>
-      <button id="forward" class="icon-button" title="Forward (Alt+→)" disabled>
-        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-          <line x1="5" y1="12" x2="19" y2="12" />
-          <polyline points="12 5 19 12 12 19" />
-        </svg>
-      </button>
-      <button id="reload" class="icon-button" title="Refresh (F5)">
-        <svg class="icon icon-reload" viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M20 12a8 8 0 1 1-2.34-5.66L20 8.5" />
-          <polyline points="20 4 20 8.5 15.5 8.5" />
-        </svg>
-        <svg class="icon icon-stop" viewBox="0 0 24 24" aria-hidden="true">
-          <line x1="6" y1="6" x2="18" y2="18" />
-          <line x1="18" y1="6" x2="6" y2="18" />
-        </svg>
-      </button>
-
       <input
         id="address"
         type="text"
@@ -82,22 +65,67 @@
         autocomplete="off"
         spellcheck="false"
       />
+
+      <div class="window-controls" aria-label="Window">
+        <button
+          class="light light-close"
+          data-action="close"
+          title="Close"
+          aria-label="Close"
+        >
+          <svg class="light-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <line x1="6" y1="6" x2="18" y2="18" />
+            <line x1="18" y1="6" x2="6" y2="18" />
+          </svg>
+        </button>
+        <button
+          class="light light-minimize"
+          data-action="minimize"
+          title="Minimize"
+          aria-label="Minimize"
+        >
+          <svg class="light-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <line x1="5" y1="12" x2="19" y2="12" />
+          </svg>
+        </button>
+        <button
+          class="light light-maximize"
+          data-action="maximize"
+          title="Maximize"
+          aria-label="Maximize"
+        >
+          <svg
+            class="light-icon light-icon-fill"
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+          >
+            <polygon points="8 4 20 4 20 16" />
+            <polygon points="4 8 4 20 16 20" />
+          </svg>
+        </button>
+      </div>
     </div>
 
+    <!-- Soft glow around the web page for "Smooth dividers". -->
+    <div id="page-glow" aria-hidden="true"></div>
+
     <section id="start-page" hidden>
-      <form id="start-form" autocomplete="off">
-        <svg class="icon start-icon" viewBox="0 0 24 24" aria-hidden="true">
-          <circle cx="11" cy="11" r="7" />
-          <line x1="16" y1="16" x2="20" y2="20" />
-        </svg>
-        <input
-          id="start-search"
-          type="text"
-          placeholder="Search or enter website address"
-          spellcheck="false"
-          aria-label="Search or enter website address"
-        />
-      </form>
+      <div class="start-inner">
+        <h1 class="start-title">Find whatever. Go wherever.</h1>
+        <form id="start-form" autocomplete="off">
+          <svg class="icon start-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="11" cy="11" r="7" />
+            <line x1="16" y1="16" x2="20" y2="20" />
+          </svg>
+          <input
+            id="start-search"
+            type="text"
+            placeholder="Search or enter website address"
+            spellcheck="false"
+            aria-label="Search or enter website address"
+          />
+        </form>
+      </div>
     </section>
 
     <main id="settings" hidden>
@@ -149,6 +177,44 @@
         <div class="bar">
           <div class="column">
             <span id="settings-title" class="bar-title">Appearance</span>
+          </div>
+          <div class="window-controls" aria-label="Window">
+            <button
+              class="light light-close"
+              data-action="close"
+              title="Close"
+              aria-label="Close"
+            >
+              <svg class="light-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <line x1="6" y1="6" x2="18" y2="18" />
+                <line x1="18" y1="6" x2="6" y2="18" />
+              </svg>
+            </button>
+            <button
+              class="light light-minimize"
+              data-action="minimize"
+              title="Minimize"
+              aria-label="Minimize"
+            >
+              <svg class="light-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <line x1="5" y1="12" x2="19" y2="12" />
+              </svg>
+            </button>
+            <button
+              class="light light-maximize"
+              data-action="maximize"
+              title="Maximize"
+              aria-label="Maximize"
+            >
+              <svg
+                class="light-icon light-icon-fill"
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+              >
+                <polygon points="8 4 20 4 20 16" />
+                <polygon points="4 8 4 20 16 20" />
+              </svg>
+            </button>
           </div>
         </div>
         <div class="settings-content">
@@ -207,6 +273,28 @@
                     class="switch"
                   />
                 </label>
+                <label class="setting-row">
+                  <span>
+                    <strong>Section dividers</strong>
+                    <small>Lines between the sidebar, bars and rows</small>
+                  </span>
+                  <input
+                    id="setting-show-dividers"
+                    type="checkbox"
+                    class="switch"
+                  />
+                </label>
+                <label id="smooth-dividers-row" class="setting-row">
+                  <span>
+                    <strong>Smooth dividers</strong>
+                    <small>Blend colors with a gradient instead of lines</small>
+                  </span>
+                  <input
+                    id="setting-smooth-dividers"
+                    type="checkbox"
+                    class="switch"
+                  />
+                </label>
               </div>
             </section>
 
@@ -239,6 +327,33 @@
 
             <section class="settings-panel" data-panel="features" hidden>
               <div class="settings-card">
+                <label class="setting-row">
+                  <span>
+                    <strong>Force dark mode</strong>
+                    <small
+                      >Make every website dark, even without a dark mode</small
+                    >
+                  </span>
+                  <input
+                    id="setting-force-dark"
+                    type="checkbox"
+                    class="switch"
+                  />
+                </label>
+                <label class="setting-row">
+                  <span>
+                    <strong>Scroll through tabs</strong>
+                    <small
+                      >Use the mouse wheel over the sidebar to switch
+                      tabs</small
+                    >
+                  </span>
+                  <input
+                    id="setting-scroll-tabs"
+                    type="checkbox"
+                    class="switch"
+                  />
+                </label>
                 <div class="setting-row">
                   <span>
                     <strong>Clear browsing data</strong>

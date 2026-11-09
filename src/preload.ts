@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { BrowserState, Settings, TabsState } from './shared';
+import type { BrowserState, PageEdges, Settings, TabsState } from './shared';
 
 contextBridge.exposeInMainWorld('browser', {
   navigate: (url: string) => ipcRenderer.send('browser:navigate', url),
@@ -14,6 +14,9 @@ contextBridge.exposeInMainWorld('browser', {
   moveTab: (id: number, toIndex: number) =>
     ipcRenderer.send('browser:move-tab', id, toIndex),
   toggleSidebar: () => ipcRenderer.send('browser:toggle-sidebar'),
+  windowAction: (action: 'close' | 'minimize' | 'maximize') =>
+    ipcRenderer.send('browser:window', action),
+  platform: process.platform,
 
   setSettingsOpen: (open: boolean) =>
     ipcRenderer.send('browser:set-settings-open', open),
@@ -35,6 +38,16 @@ contextBridge.exposeInMainWorld('browser', {
   onSettingsChanged: (callback: (settings: Settings) => void) => {
     ipcRenderer.on('browser:settings', (_event, settings: Settings) =>
       callback(settings),
+    );
+  },
+  onPageEdges: (callback: (edges: PageEdges) => void) => {
+    ipcRenderer.on('browser:page-edges', (_event, edges: PageEdges) =>
+      callback(edges),
+    );
+  },
+  onWindowFocus: (callback: (focused: boolean) => void) => {
+    ipcRenderer.on('browser:window-focus', (_event, focused: boolean) =>
+      callback(focused),
     );
   },
   onFocusAddress: (callback: () => void) => {

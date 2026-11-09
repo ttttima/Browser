@@ -34,6 +34,12 @@ const config: ForgeConfig = {
           config: 'vite.preload.config.mts',
           target: 'preload',
         },
+        {
+          // Runs inside website tabs (dark mode forcer).
+          entry: 'src/tab-preload.ts',
+          config: 'vite.preload.config.mts',
+          target: 'preload',
+        },
       ],
       renderer: [
         {
