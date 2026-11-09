@@ -7,6 +7,11 @@ Nya is a desktop web browser built with Electron + TypeScript + Vite (Electron F
 - `src/renderer.ts` + `index.html` + `src/index.css`: the browser UI
 - `src/shared.ts`: types and constants used by all three
 
+Nya must never need administrator rights: the app and installer run as
+`asInvoker` and Squirrel installs per user into `%LocalAppData%`. Don't add
+anything that requires elevation (machine-wide installs, writing to Program
+Files or HKLM, services, drivers).
+
 Run `npm start`. Before finishing, run `npm run typecheck` and `npm run lint`.
 
 ## Design rules

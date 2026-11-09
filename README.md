@@ -17,6 +17,8 @@ Nya is a clean, minimal desktop web browser with vertical tabs, built with Elect
 - **Your own shortcuts**: bind any action to a key or mouse button, and add
   custom shortcuts that open your favorite sites
 - **Scroll through tabs** with the mouse wheel over the sidebar
+- **No admin rights needed**: installs just for your user, never asks for
+  administrator permission
 - **Privacy by default**: websites can't use your camera, microphone,
   location or notifications
 
