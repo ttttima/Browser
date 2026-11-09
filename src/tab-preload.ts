@@ -84,11 +84,29 @@ function stopWaiting() {
 }
 
 /**
+ * The tab's own background matches the browser's color mode (so new pages
+ * don't flash white). A page that never sets a background expects the
+ * browser default instead, so give it that: `Canvas` is white for normal
+ * pages and dark for pages that declare a dark color scheme.
+ */
+function keepDefaultBackground() {
+  const clear = (element: Element | null) =>
+    !element ||
+    /^(transparent|rgba\(0, 0, 0, 0\))$/.test(
+      getComputedStyle(element).backgroundColor,
+    );
+  if (clear(document.documentElement) && clear(document.body)) {
+    addStyle(':root { background-color: Canvas; }');
+  }
+}
+
+/**
  * Called when <body> appears. The site's render-blocking CSS is loaded by
  * then but nothing is painted yet, so the choice is made before the first
  * frame.
  */
 function decide() {
+  keepDefaultBackground();
   if (!enabled) return;
   setDarkened(pageLightness() >= DARKEN_ABOVE);
   stopWaiting();
@@ -132,6 +150,19 @@ if (document.documentElement) {
 }
 
 window.addEventListener('load', () => setTimeout(recheck, 300));
+
+// Mouse side buttons (back / forward by default) are user bindings, so
+// report them instead of letting the page handle them.
+window.addEventListener(
+  'mouseup',
+  (event) => {
+    if (event.button !== 3 && event.button !== 4) return;
+    event.preventDefault();
+    event.stopPropagation();
+    ipcRenderer.send('browser:mouse-button', event.button);
+  },
+  true,
+);
 
 // The setting was switched while the page is open.
 ipcRenderer.on('browser:force-dark', (_event, on: unknown) => {

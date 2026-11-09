@@ -21,7 +21,7 @@
         <button
           id="toggle-sidebar"
           class="icon-button"
-          title="Collapse sidebar (Ctrl+Shift+B)"
+          title="Collapse sidebar"
         >
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
             <rect x="3" y="4" width="18" height="16" rx="2" />
@@ -31,7 +31,7 @@
       </div>
 
       <div class="sidebar-body">
-        <button id="new-tab" class="row" title="New tab (Ctrl+T)">
+        <button id="new-tab" class="row" title="New tab">
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
             <line x1="12" y1="5" x2="12" y2="19" />
             <line x1="5" y1="12" x2="19" y2="12" />
@@ -42,11 +42,7 @@
       </div>
 
       <div class="bar bar-end">
-        <button
-          id="open-settings"
-          class="icon-button"
-          title="Settings (Ctrl+,)"
-        >
+        <button id="open-settings" class="icon-button" title="Settings">
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
             <circle cx="12" cy="12" r="3" />
             <path
@@ -67,17 +63,6 @@
       />
 
       <div class="window-controls" aria-label="Window">
-        <button
-          class="light light-close"
-          data-action="close"
-          title="Close"
-          aria-label="Close"
-        >
-          <svg class="light-icon" viewBox="0 0 24 24" aria-hidden="true">
-            <line x1="6" y1="6" x2="18" y2="18" />
-            <line x1="18" y1="6" x2="6" y2="18" />
-          </svg>
-        </button>
         <button
           class="light light-minimize"
           data-action="minimize"
@@ -101,6 +86,17 @@
           >
             <polygon points="8 4 20 4 20 16" />
             <polygon points="4 8 4 20 16 20" />
+          </svg>
+        </button>
+        <button
+          class="light light-close"
+          data-action="close"
+          title="Close"
+          aria-label="Close"
+        >
+          <svg class="light-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <line x1="6" y1="6" x2="18" y2="18" />
+            <line x1="18" y1="6" x2="6" y2="18" />
           </svg>
         </button>
       </div>
@@ -180,17 +176,6 @@
           </div>
           <div class="window-controls" aria-label="Window">
             <button
-              class="light light-close"
-              data-action="close"
-              title="Close"
-              aria-label="Close"
-            >
-              <svg class="light-icon" viewBox="0 0 24 24" aria-hidden="true">
-                <line x1="6" y1="6" x2="18" y2="18" />
-                <line x1="18" y1="6" x2="6" y2="18" />
-              </svg>
-            </button>
-            <button
               class="light light-minimize"
               data-action="minimize"
               title="Minimize"
@@ -213,6 +198,17 @@
               >
                 <polygon points="8 4 20 4 20 16" />
                 <polygon points="4 8 4 20 16 20" />
+              </svg>
+            </button>
+            <button
+              class="light light-close"
+              data-action="close"
+              title="Close"
+              aria-label="Close"
+            >
+              <svg class="light-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <line x1="6" y1="6" x2="18" y2="18" />
+                <line x1="18" y1="6" x2="6" y2="18" />
               </svg>
             </button>
           </div>
@@ -265,7 +261,7 @@
                 <label class="setting-row">
                   <span>
                     <strong>Compact sidebar</strong>
-                    <small>Show only tab icons (Ctrl+Shift+B)</small>
+                    <small>Show only tab icons</small>
                   </span>
                   <input
                     id="setting-sidebar-collapsed"
@@ -366,29 +362,21 @@
                 </div>
               </div>
               <div class="settings-card">
-                <h3 class="card-title">Keyboard shortcuts</h3>
-                <dl class="shortcuts">
-                  <dt>Ctrl+T</dt>
-                  <dd>New tab</dd>
-                  <dt>Ctrl+W</dt>
-                  <dd>Close tab</dd>
-                  <dt>Ctrl+Shift+T</dt>
-                  <dd>Reopen closed tab</dd>
-                  <dt>Ctrl+Tab</dt>
-                  <dd>Next tab</dd>
-                  <dt>Ctrl+1…9</dt>
-                  <dd>Go to tab</dd>
-                  <dt>Ctrl+L</dt>
-                  <dd>Address bar</dd>
-                  <dt>Ctrl+Shift+B</dt>
-                  <dd>Compact sidebar</dd>
-                  <dt>Ctrl+,</dt>
-                  <dd>Settings</dd>
-                  <dt>F5</dt>
-                  <dd>Reload</dd>
-                  <dt>F12</dt>
-                  <dd>Developer tools</dd>
-                </dl>
+                <div class="card-title">
+                  <span>Shortcuts</span>
+                  <button id="reset-bindings" class="text-button">Reset</button>
+                </div>
+                <div id="bindings"></div>
+                <div id="custom-bindings"></div>
+                <div class="card-footer">
+                  <button id="add-custom" class="text-button">
+                    <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                      <line x1="12" y1="5" x2="12" y2="19" />
+                      <line x1="5" y1="12" x2="19" y2="12" />
+                    </svg>
+                    Add custom
+                  </button>
+                </div>
               </div>
             </section>
           </div>

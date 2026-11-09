@@ -17,6 +17,10 @@ contextBridge.exposeInMainWorld('browser', {
   windowAction: (action: 'close' | 'minimize' | 'maximize') =>
     ipcRenderer.send('browser:window', action),
   platform: process.platform,
+  mouseButton: (button: number) =>
+    ipcRenderer.send('browser:mouse-button', button),
+  setRecordingBinding: (on: boolean) =>
+    ipcRenderer.send('browser:recording-binding', on),
 
   setSettingsOpen: (open: boolean) =>
     ipcRenderer.send('browser:set-settings-open', open),

@@ -1,6 +1,13 @@
 import './index.css';
 import {
   ACCENT_PRESETS,
+  ACTIONS,
+  MOUSE_BUTTONS,
+  bindingLabel,
+  defaultBindings,
+  keyCombo,
+  type ActionId,
+  type CustomBinding,
   SEARCH_ENGINES,
   type BrowserState,
   type PageEdges,
@@ -24,6 +31,8 @@ interface BrowserAPI {
   toggleSidebar: () => void;
   windowAction: (action: 'close' | 'minimize' | 'maximize') => void;
   platform: string;
+  mouseButton: (button: number) => void;
+  setRecordingBinding: (on: boolean) => void;
   setSettingsOpen: (open: boolean) => void;
   updateSettings: (changes: Partial<Settings>) => void;
   clearBrowsingData: () => Promise<boolean>;
@@ -195,7 +204,7 @@ function createTabElement(id: number) {
 
   const close = document.createElement('button');
   close.className = 'tab-close';
-  close.title = 'Close tab (Ctrl+W)';
+  close.title = 'Close tab';
   close.innerHTML = CLOSE_ICON;
   close.addEventListener('click', (event) => {
     event.stopPropagation();
@@ -298,8 +307,8 @@ function renderTabs(state: TabsState) {
   }
 
   $('#toggle-sidebar').title = state.sidebarCollapsed
-    ? 'Expand sidebar (Ctrl+Shift+B)'
-    : 'Collapse sidebar (Ctrl+Shift+B)';
+    ? 'Expand sidebar'
+    : 'Collapse sidebar';
 
   const ids = new Set(state.tabs.map((tab) => tab.id));
   for (const [id, element] of tabElements) {
@@ -610,6 +619,206 @@ for (const input of themeInputs) {
   });
 }
 
+// ---- shortcuts (bindings)
+
+const bindingsList = $<HTMLDivElement>('#bindings');
+const customList = $<HTMLDivElement>('#custom-bindings');
+let currentBindings = defaultBindings();
+let customBindings: CustomBinding[] = [];
+/** What is being recorded: a built-in action, or "custom:<id>". */
+let recording: string | null = null;
+
+function saveBindings(
+  bindings: typeof currentBindings,
+  custom: CustomBinding[] = customBindings,
+) {
+  currentBindings = bindings;
+  customBindings = custom;
+  renderBindings();
+  window.browser.updateSettings({ bindings, customBindings: custom });
+}
+
+/** Binds a key to a built-in action or a custom shortcut. */
+function setBinding(target: string, binding: string) {
+  const next = { ...currentBindings };
+  // One thing per key: take it away from whatever had it.
+  for (const other of ACTIONS) {
+    if (binding && next[other.id] === binding) next[other.id] = '';
+  }
+  const custom = customBindings.map((c) =>
+    binding && c.binding === binding ? { ...c, binding: '' } : c,
+  );
+  if (target.startsWith('custom:')) {
+    const id = target.slice('custom:'.length);
+    const index = custom.findIndex((c) => c.id === id);
+    if (index !== -1) custom[index] = { ...custom[index], binding };
+  } else {
+    next[target as ActionId] = binding;
+  }
+  saveBindings(next, custom);
+}
+
+/** The key cap button + remove button used by every shortcut row. */
+function bindingControls(target: string, value: string, name: string) {
+  const controls = document.createElement('div');
+  controls.className = 'binding-controls';
+
+  const button = document.createElement('button');
+  button.className = 'binding';
+  button.classList.toggle('unset', !value);
+  button.classList.toggle('recording', recording === target);
+  button.textContent =
+    recording === target ? 'Press a key or mouse button' : bindingLabel(value);
+  button.title = 'Click, then press a key or mouse side button';
+  button.addEventListener('click', () => {
+    recording = target;
+    window.browser.setRecordingBinding(true);
+    renderBindings();
+  });
+
+  const clear = document.createElement('button');
+  clear.className = 'icon-button binding-clear';
+  clear.title = 'Remove';
+  clear.ariaLabel = `Remove ${name} shortcut`;
+  clear.innerHTML = CLOSE_ICON;
+  clear.disabled = !value;
+  clear.addEventListener('click', () => setBinding(target, ''));
+
+  controls.append(button, clear);
+  return controls;
+}
+
+function stopRecording() {
+  recording = null;
+  window.browser.setRecordingBinding(false);
+  renderBindings();
+}
+
+function renderBindings() {
+  bindingsList.replaceChildren(
+    ...ACTIONS.map((action) => {
+      const row = document.createElement('div');
+      row.className = 'setting-row binding-row';
+
+      const label = document.createElement('strong');
+      label.textContent = action.label;
+
+      const controls = bindingControls(
+        action.id,
+        currentBindings[action.id],
+        action.label,
+      );
+      row.append(label, controls);
+      return row;
+    }),
+  );
+
+  customList.replaceChildren(
+    ...customBindings.map((custom) => {
+      const row = document.createElement('div');
+      row.className = 'setting-row binding-row';
+
+      const url = document.createElement('input');
+      url.type = 'text';
+      url.className = 'custom-url';
+      url.placeholder = 'Site or link, e.g. youtube.com';
+      url.spellcheck = false;
+      url.value = custom.url;
+      url.addEventListener('change', () =>
+        saveBindings(
+          currentBindings,
+          customBindings.map((c) =>
+            c.id === custom.id ? { ...c, url: url.value.trim() } : c,
+          ),
+        ),
+      );
+      url.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') url.blur();
+      });
+
+      const controls = bindingControls(
+        `custom:${custom.id}`,
+        custom.binding,
+        custom.url || 'custom',
+      );
+      // On a custom row, the remove button deletes the whole shortcut.
+      const remove =
+        controls.querySelector<HTMLButtonElement>('.binding-clear')!;
+      const fresh = remove.cloneNode(true) as HTMLButtonElement;
+      fresh.disabled = false;
+      fresh.title = 'Delete shortcut';
+      fresh.addEventListener('click', () =>
+        saveBindings(
+          currentBindings,
+          customBindings.filter((c) => c.id !== custom.id),
+        ),
+      );
+      remove.replaceWith(fresh);
+
+      row.append(url, controls);
+      return row;
+    }),
+  );
+}
+
+$('#add-custom').addEventListener('click', () => {
+  const id = Math.random().toString(36).slice(2, 10);
+  saveBindings(currentBindings, [
+    ...customBindings,
+    { id, url: '', binding: '' },
+  ]);
+  // Start with the link: focus the new row's input.
+  customList
+    .querySelector<HTMLInputElement>('.binding-row:last-child input')
+    ?.focus();
+});
+
+// Record the next key press (Escape cancels) or mouse side button.
+window.addEventListener(
+  'keydown',
+  (event) => {
+    if (!recording) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.key === 'Escape') return stopRecording();
+    const combo = keyCombo({
+      key: event.key,
+      ctrl: event.ctrlKey,
+      alt: event.altKey,
+      shift: event.shiftKey,
+      meta: event.metaKey,
+    });
+    if (!combo) return; // only a modifier so far, keep waiting
+    const action = recording;
+    stopRecording();
+    setBinding(action, combo);
+  },
+  true,
+);
+
+window.addEventListener(
+  'mouseup',
+  (event) => {
+    const button = MOUSE_BUTTONS[event.button];
+    if (!button) return;
+    event.preventDefault();
+    if (recording) {
+      const action = recording;
+      stopRecording();
+      setBinding(action, button);
+    } else {
+      // Side buttons over our own UI run their binding too.
+      window.browser.mouseButton(event.button);
+    }
+  },
+  true,
+);
+
+$('#reset-bindings').addEventListener('click', () => {
+  if (recording) stopRecording();
+  saveBindings(defaultBindings());
+});
+
 window.browser.onSettingsChanged((settings) => {
   document.documentElement.dataset.theme = settings.theme;
   updateDither();
@@ -625,5 +834,9 @@ window.browser.onSettingsChanged((settings) => {
   forceDark.checked = settings.forceDark;
   scrollTabs.checked = settings.scrollTabs;
   scrollTabsEnabled = settings.scrollTabs;
+  currentBindings = settings.bindings;
+  customBindings = settings.customBindings;
+  // Don't rebuild the list under the user's cursor while they type a link.
+  if (!customList.contains(document.activeElement)) renderBindings();
   applyDividers(settings.showDividers, settings.smoothDividers);
 });

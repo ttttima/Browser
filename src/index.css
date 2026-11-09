@@ -778,41 +778,100 @@ button.danger:hover:not(:disabled) {
   color: #fff;
 }
 
-.shortcuts {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  grid-auto-rows: var(--control-lg);
-  align-items: center;
-  column-gap: var(--space-6);
-  margin: 0;
+/* ---- shortcuts (bindings) */
+
+.card-title {
+  justify-content: space-between;
 }
 
-.shortcuts dt,
-.shortcuts dd {
+.text-button {
+  height: var(--control-sm);
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  font-size: var(--text-sm);
+  font-weight: var(--weight);
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+.text-button:hover:not(:disabled) {
+  color: var(--text);
+}
+
+/* Bindings are a list, so rows are compact: 48 instead of 64. */
+.binding-row {
+  min-height: var(--control-lg);
+  padding: var(--space-2) 0;
+}
+
+.binding-controls {
   display: flex;
   align-items: center;
-  height: 100%;
-  margin: 0;
-  border-bottom: 1px solid var(--divider);
+  gap: var(--space-1);
 }
 
-.shortcuts dt:nth-last-of-type(1),
-.shortcuts dd:nth-last-of-type(1) {
-  border-bottom: none;
-}
-
-.shortcuts dt {
-  justify-content: flex-start;
-}
-
-.shortcuts dd {
-  justify-content: flex-end;
-  color: var(--muted);
-}
-
-.shortcuts dt {
+/* A key cap: what the action is bound to. Click to record a new one. */
+.binding {
+  min-width: 128px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--input-border);
+  background: var(--input-bg);
   font-family: ui-monospace, Consolas, monospace;
   font-size: var(--text-sm);
+}
+
+.binding:hover:not(:disabled) {
+  border-color: var(--muted);
+  background: var(--input-bg);
+}
+
+.binding.unset {
+  color: var(--muted);
+  font-family: inherit;
+}
+
+.binding.recording {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--text-strong);
+  font-family: inherit;
+}
+
+.binding-clear {
+  width: var(--control-sm);
+  height: var(--control-sm);
+  min-width: var(--control-sm);
+  border-radius: var(--radius-sm);
+}
+
+.binding-clear:disabled {
+  visibility: hidden;
+}
+
+/* Custom shortcut: the link takes the label's place on the left. */
+.custom-url {
+  flex: 1;
+  min-width: 0;
+}
+
+.setting-row .custom-url {
+  width: auto;
+}
+
+.card-footer {
+  display: flex;
+  justify-content: flex-start;
+  padding: var(--space-2) 0;
+  border-top: 1px solid var(--divider);
+}
+
+.card-footer .text-button {
+  gap: var(--space-2);
+  height: var(--control);
+  padding: 0 var(--space-2);
+  border-radius: var(--radius);
+  font-size: var(--text-md);
 }
 
 /* ============================================================ color mode */
@@ -1087,34 +1146,13 @@ body.smooth-dividers .settings-content {
 
 /* Lines between rows: fade out at both ends instead of stopping sharply. */
 body.smooth-dividers .card-title,
-body.smooth-dividers .setting-row + .setting-row,
-body.smooth-dividers .shortcuts dt,
-body.smooth-dividers .shortcuts dd {
+body.smooth-dividers .setting-row + .setting-row {
   border-image: linear-gradient(
       to right,
       transparent,
       var(--divider) var(--fade),
       var(--divider) calc(100% - var(--fade)),
       transparent
-    )
-    1;
-}
-
-/* Shortcut rows are split in two cells: fade only on the outer ends. */
-body.smooth-dividers .shortcuts dt {
-  border-image: linear-gradient(
-      to right,
-      transparent,
-      var(--divider) var(--fade)
-    )
-    1;
-}
-
-body.smooth-dividers .shortcuts dd {
-  border-image: linear-gradient(
-      to left,
-      transparent,
-      var(--divider) var(--fade)
     )
     1;
 }

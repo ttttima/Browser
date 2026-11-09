@@ -26,6 +26,13 @@ import {
   type Theme,
   type TabInfo,
   type TabsState,
+  ACTIONS,
+  MOUSE_BUTTONS,
+  defaultBindings,
+  keyCombo,
+  type ActionId,
+  type Bindings,
+  type CustomBinding,
 } from './shared';
 
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string;
@@ -122,6 +129,8 @@ function sanitizeSettings(value: Partial<Settings>): Settings {
     smoothDividers: value.smoothDividers === true,
     forceDark: value.forceDark === true,
     scrollTabs: value.scrollTabs === true,
+    bindings: sanitizeBindings(value.bindings),
+    customBindings: sanitizeCustomBindings(value.customBindings),
     theme: THEMES.includes(value.theme as Theme)
       ? (value.theme as Theme)
       : DEFAULT_SETTINGS.theme,
@@ -140,6 +149,46 @@ function applyTheme() {
   if (window && !window.isDestroyed()) {
     window.setBackgroundColor(THEME_BACKGROUNDS[settings.theme]);
   }
+  for (const tab of tabs) {
+    if (!tab.view.webContents.isDestroyed()) {
+      tab.view.setBackgroundColor(tabBackground());
+    }
+  }
+}
+
+/** Known actions only, short strings only, and one action per binding. */
+function sanitizeBindings(value: unknown): Bindings {
+  const result = defaultBindings();
+  if (!value || typeof value !== 'object') return result;
+  const used = new Set<string>();
+  for (const action of ACTIONS) {
+    const binding = (value as Record<string, unknown>)[action.id];
+    if (typeof binding !== 'string') continue;
+    const clean = binding.length <= 40 && !used.has(binding) ? binding : '';
+    result[action.id] = clean;
+    if (clean) used.add(clean);
+  }
+  return result;
+}
+
+/** Up to 50 custom shortcuts, each with a web link or nothing yet. */
+function sanitizeCustomBindings(value: unknown): CustomBinding[] {
+  if (!Array.isArray(value)) return [];
+  const result: CustomBinding[] = [];
+  for (const item of value.slice(0, 50)) {
+    if (!item || typeof item !== 'object') continue;
+    const { id, url, binding } = item as Record<string, unknown>;
+    if (typeof id !== 'string' || !/^[a-z0-9]{1,16}$/.test(id)) continue;
+    const text = typeof url === 'string' ? url.trim() : '';
+    result.push({
+      id,
+      // Keep what was typed while it isn't a full address yet.
+      url: text.length <= 2048 ? text : '',
+      binding:
+        typeof binding === 'string' && binding.length <= 40 ? binding : '',
+    });
+  }
+  return result;
 }
 
 function sendSettings() {
@@ -540,7 +589,10 @@ function toggleSidebar() {
 
 /** Tab background before a page paints: dark while the forcer is on. */
 function tabBackground() {
-  return settings.forceDark ? '#0a0a0a' : '#ffffff';
+  // Shown for a moment before a page paints. Match the color mode so new
+  // pages never flash white in dark / OLED mode.
+  if (settings.forceDark) return '#0a0a0a';
+  return THEME_BACKGROUNDS[settings.theme];
 }
 
 /**
@@ -745,59 +797,88 @@ function focusAddressBar() {
   ui.send('browser:focus-address');
 }
 
+/** Runs one bindable action. */
+function runAction(action: ActionId) {
+  switch (action) {
+    case 'reload':
+      return reload();
+    case 'hardReload':
+      return reload(true);
+    case 'back':
+      return goBack();
+    case 'forward':
+      return goForward();
+    case 'newTab':
+      return newTab();
+    case 'closeTab':
+      if (activeTabId !== null) closeTab(activeTabId);
+      return;
+    case 'reopenTab':
+      return reopenClosedTab();
+    case 'nextTab':
+      return cycleTab(1);
+    case 'previousTab':
+      return cycleTab(-1);
+    case 'focusAddress':
+      return focusAddressBar();
+    case 'toggleSidebar':
+      return toggleSidebar();
+    case 'openSettings':
+      return setSettingsOpen(!settingsOpen);
+    case 'zoomIn':
+      return changeZoom(0.5);
+    case 'zoomOut':
+      return changeZoom(-0.5);
+    case 'zoomReset':
+      return changeZoom(null);
+    case 'devTools':
+      return activeContents()?.toggleDevTools();
+  }
+}
+
+/** What a key combo or mouse button does, if anything. */
+function actionFor(binding: string): (() => void) | null {
+  if (!binding) return null;
+  const action = ACTIONS.find((a) => settings.bindings[a.id] === binding);
+  if (action) return () => runAction(action.id);
+  const custom = settings.customBindings.find((c) => c.binding === binding);
+  const url = custom ? toUrl(custom.url, false) : null;
+  if (url) return () => createTab(url);
+  return null;
+}
+
+/** While the UI is recording a new binding, presses must not run actions. */
+let recordingBinding = false;
+
 /**
- * Browser keyboard shortcuts. Attached to the UI and to every tab so they
- * work no matter what has focus.
+ * Keyboard handling for the UI and every tab. Only user-set bindings run
+ * (by default just F5). Escape leaving settings / video fullscreen is
+ * built-in behavior, not a binding.
  */
 function handleShortcut(input: Input): boolean {
   if (input.type !== 'keyDown') return false;
 
-  const key = input.key.toLowerCase();
-  const ctrl = process.platform === 'darwin' ? input.meta : input.control;
-
-  if ((ctrl && key === 'l') || (input.alt && key === 'd')) {
-    focusAddressBar();
-  } else if (ctrl && input.shift && key === 't') {
-    reopenClosedTab();
-  } else if (ctrl && key === 't') {
-    newTab();
-  } else if (ctrl && (key === 'w' || key === 'f4')) {
-    if (activeTabId !== null) closeTab(activeTabId);
-  } else if (ctrl && key === 'tab') {
-    cycleTab(input.shift ? -1 : 1);
-  } else if (ctrl && key === 'pagedown') {
-    cycleTab(1);
-  } else if (ctrl && key === 'pageup') {
-    cycleTab(-1);
-  } else if (ctrl && /^[1-9]$/.test(key)) {
-    // Ctrl+1..8 jump to that tab, Ctrl+9 to the last one.
-    const index = key === '9' ? tabs.length - 1 : Number(key) - 1;
-    if (tabs[index]) activateTab(tabs[index].id);
-  } else if (ctrl && input.shift && key === 'b') {
-    toggleSidebar();
-  } else if (key === 'f5' || (ctrl && key === 'r')) {
-    reload(input.shift || (ctrl && key === 'f5'));
-  } else if (input.alt && key === 'arrowleft') {
-    goBack();
-  } else if (input.alt && key === 'arrowright') {
-    goForward();
-  } else if (ctrl && (key === '=' || key === '+')) {
-    changeZoom(0.5);
-  } else if (ctrl && key === '-') {
-    changeZoom(-0.5);
-  } else if (ctrl && key === '0') {
-    changeZoom(null);
-  } else if (key === 'f12' || (ctrl && input.shift && key === 'i')) {
-    activeContents()?.toggleDevTools();
-  } else if (ctrl && key === ',') {
-    setSettingsOpen(!settingsOpen);
-  } else if (key === 'escape' && settingsOpen) {
+  if (input.key === 'Escape' && settingsOpen && !recordingBinding) {
     setSettingsOpen(false);
-  } else if (key === 'escape' && htmlFullScreen) {
-    activeContents()?.executeJavaScript('document.exitFullscreen()', true);
-  } else {
-    return false;
+    return true;
   }
+  if (input.key === 'Escape' && htmlFullScreen) {
+    activeContents()?.executeJavaScript('document.exitFullscreen()', true);
+    return true;
+  }
+  if (recordingBinding) return false;
+
+  const action = actionFor(
+    keyCombo({
+      key: input.key,
+      ctrl: input.control,
+      alt: input.alt,
+      shift: input.shift,
+      meta: input.meta,
+    }),
+  );
+  if (!action) return false;
+  action();
   return true;
 }
 
@@ -921,6 +1002,17 @@ function setUpIpc() {
     'browser:toggle-sidebar',
     (event) => fromUi(event.sender) && toggleSidebar(),
   );
+  // Mouse side buttons, reported by the UI and by tab-preload.ts in pages.
+  ipcMain.on('browser:mouse-button', (event, button: unknown) => {
+    const fromTab = tabs.some((tab) => tab.view.webContents === event.sender);
+    if (!fromUi(event.sender) && !fromTab) return;
+    if (recordingBinding || typeof button !== 'number') return;
+    const action = actionFor(MOUSE_BUTTONS[button] ?? '');
+    action?.();
+  });
+  ipcMain.on('browser:recording-binding', (event, on: unknown) => {
+    if (fromUi(event.sender)) recordingBinding = on === true;
+  });
   // Our own window buttons (the window has no system title bar).
   ipcMain.on('browser:window', (event, action: unknown) => {
     if (!fromUi(event.sender) || !window || window.isDestroyed()) return;

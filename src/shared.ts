@@ -31,6 +31,94 @@ export interface PageEdges {
   top: string | null;
 }
 
+// ---------------------------------------------------------------- bindings
+
+/** Everything a key or mouse button can be bound to. */
+export const ACTIONS = [
+  { id: 'reload', label: 'Refresh', binding: 'F5' },
+  { id: 'back', label: 'Back', binding: 'Mouse4' },
+  { id: 'forward', label: 'Forward', binding: 'Mouse5' },
+  { id: 'hardReload', label: 'Refresh without cache', binding: '' },
+  { id: 'newTab', label: 'New tab', binding: '' },
+  { id: 'closeTab', label: 'Close tab', binding: '' },
+  { id: 'reopenTab', label: 'Reopen closed tab', binding: '' },
+  { id: 'nextTab', label: 'Next tab', binding: '' },
+  { id: 'previousTab', label: 'Previous tab', binding: '' },
+  { id: 'focusAddress', label: 'Address bar', binding: '' },
+  { id: 'toggleSidebar', label: 'Compact sidebar', binding: '' },
+  { id: 'openSettings', label: 'Settings', binding: '' },
+  { id: 'zoomIn', label: 'Zoom in', binding: '' },
+  { id: 'zoomOut', label: 'Zoom out', binding: '' },
+  { id: 'zoomReset', label: 'Reset zoom', binding: '' },
+  { id: 'devTools', label: 'Developer tools', binding: '' },
+] as const;
+
+/** A user-made shortcut: press it to open \`url\` in a new tab. */
+export interface CustomBinding {
+  id: string;
+  url: string;
+  binding: string;
+}
+
+export type ActionId = (typeof ACTIONS)[number]['id'];
+export type Bindings = Record<ActionId, string>;
+
+export function defaultBindings(): Bindings {
+  return Object.fromEntries(
+    ACTIONS.map((action) => [action.id, action.binding]),
+  ) as Bindings;
+}
+
+/** Mouse side buttons, by DOM button number (3 = back, 4 = forward). */
+export const MOUSE_BUTTONS: Record<number, string> = {
+  3: 'Mouse4',
+  4: 'Mouse5',
+};
+
+/**
+ * One text form for a key press, used by both the main process and the
+ * UI so a binding recorded in settings matches what is pressed later:
+ * "F5", "Ctrl+Shift+T", "Alt+ArrowLeft". Returns "" for a lone modifier.
+ */
+export function keyCombo(press: {
+  key: string;
+  ctrl: boolean;
+  alt: boolean;
+  shift: boolean;
+  meta: boolean;
+}): string {
+  if (['Control', 'Shift', 'Alt', 'Meta', 'AltGraph'].includes(press.key)) {
+    return '';
+  }
+  const key =
+    press.key === ' '
+      ? 'Space'
+      : press.key.length === 1
+        ? press.key.toUpperCase()
+        : press.key;
+  return [
+    press.ctrl && 'Ctrl',
+    press.alt && 'Alt',
+    press.shift && 'Shift',
+    press.meta && 'Meta',
+    key,
+  ]
+    .filter(Boolean)
+    .join('+');
+}
+
+/** How a binding is shown in settings. */
+export function bindingLabel(binding: string) {
+  if (!binding) return 'Not set';
+  if (binding === 'Mouse4') return 'Mouse back';
+  if (binding === 'Mouse5') return 'Mouse forward';
+  return binding
+    .replace('ArrowLeft', '←')
+    .replace('ArrowRight', '→')
+    .replace('ArrowUp', '↑')
+    .replace('ArrowDown', '↓');
+}
+
 export type Theme = 'dark' | 'light' | 'oled';
 
 export const THEMES: Theme[] = ['dark', 'light', 'oled'];
@@ -68,6 +156,10 @@ export interface Settings {
   forceDark: boolean;
   /** Mouse wheel over the sidebar switches tabs. */
   scrollTabs: boolean;
+  /** Key or mouse button for each action ("" = not set). */
+  bindings: Bindings;
+  /** User-made shortcuts that open a site. */
+  customBindings: CustomBinding[];
   theme: Theme;
   /** Main accent color as #rrggbb. */
   accentColor: string;
@@ -92,6 +184,8 @@ export const DEFAULT_SETTINGS: Settings = {
   smoothDividers: false,
   forceDark: false,
   scrollTabs: false,
+  bindings: defaultBindings(),
+  customBindings: [],
   theme: 'dark',
   accentColor: '#4f7cff',
 };
