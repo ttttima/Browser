@@ -1,8 +1,10 @@
-# Browser
+<p align="center"><img src="assets/icon.png" width="96" alt="Nya logo" /></p>
 
-A clean, minimal desktop web browser with vertical tabs, built with Electron.
+<h1 align="center">Nya</h1>
 
-![Screenshot of the browser: vertical tabs on the left and a centered search bar](docs/screenshot.png)
+Nya is a clean, minimal desktop web browser with vertical tabs, built with Electron.
+
+![Screenshot of Nya: vertical tabs on the left and a centered search bar](docs/screenshot.png)
 
 ## Features
 

@@ -55,7 +55,7 @@ const TOOLBAR_HEIGHT = 48;
 const SIDEBAR_WIDTH = 240;
 const SIDEBAR_COLLAPSED_WIDTH = 48;
 
-const APP_NAME = 'Browser';
+const APP_NAME = 'Nya';
 const MAX_CLOSED_TABS = 25;
 
 // Permissions websites get without asking. Everything else (camera, mic,
@@ -92,7 +92,30 @@ let settingsOpen = false;
 const settingsFile = () => path.join(app.getPath('userData'), 'settings.json');
 let settings: Settings = { ...DEFAULT_SETTINGS };
 
+/**
+ * Settings from before the app was renamed to Nya lived in the old app
+ * folder. Copy them over once so nobody loses their setup.
+ */
+function migrateOldSettings() {
+  const target = settingsFile();
+  if (fs.existsSync(target)) return;
+  for (const oldName of ['browser', 'Browser']) {
+    const old = path.join(app.getPath('appData'), oldName, 'settings.json');
+    if (path.resolve(old) === path.resolve(target) || !fs.existsSync(old)) {
+      continue;
+    }
+    try {
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.copyFileSync(old, target);
+      return;
+    } catch {
+      // Not important enough to stop the app from starting.
+    }
+  }
+}
+
 function loadSettings() {
+  migrateOldSettings();
   try {
     // Strip a byte-order mark some editors add, or JSON.parse fails.
     const text = fs.readFileSync(settingsFile(), 'utf-8').replace(/^﻿/, '');
@@ -896,6 +919,11 @@ function createWindow() {
     minWidth: 700,
     minHeight: 400,
     title: APP_NAME,
+    // Window/taskbar icon while developing. The installed app uses the icon
+    // built into Nya.exe instead (assets/ isn't packaged).
+    ...(fs.existsSync(path.join(app.getAppPath(), 'assets', 'icon.png'))
+      ? { icon: path.join(app.getAppPath(), 'assets', 'icon.png') }
+      : {}),
     backgroundColor: THEME_BACKGROUNDS[settings.theme],
     autoHideMenuBar: true,
     // No system title bar: our own bars go to the top edge and draw their

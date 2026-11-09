@@ -1,6 +1,6 @@
-# My Browser
+# Nya
 
-Desktop web browser built with Electron + TypeScript + Vite (Electron Forge).
+Nya is a desktop web browser built with Electron + TypeScript + Vite (Electron Forge).
 
 - `src/main.ts`: main process (tabs, windows, settings, shortcuts, security)
 - `src/preload.ts`: the only bridge between the UI and the main process

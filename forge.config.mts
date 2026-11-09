@@ -10,10 +10,18 @@ import { FuseV1Options, FuseVersion } from '@electron/fuses';
 const config: ForgeConfig = {
   packagerConfig: {
     asar: true,
+    // App icon: assets/icon.ico on Windows (.icns on macOS if added later).
+    icon: 'assets/icon',
+    executableName: 'Nya',
   },
   rebuildConfig: {},
   makers: [
-    new MakerSquirrel({}),
+    new MakerSquirrel({
+      setupIcon: 'assets/icon.ico',
+      // Shown in Windows "Installed apps"; must be a web address.
+      iconUrl:
+        'https://raw.githubusercontent.com/ttttima/Browser/main/assets/icon.ico',
+    }),
     new MakerZIP({}, ['darwin', 'win32']),
     new MakerRpm({}),
     new MakerDeb({}),
