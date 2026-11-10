@@ -85,12 +85,11 @@ exactly 8px above and below them.
   stay 1px wide and transparent so nothing shifts. New dividers must also
   get a rule in the "smooth dividers" section of `index.css`.
 - One transition duration, `--duration` (150ms), on color/background/border/
-  transform only. The one exception is the window opening/closing zoom,
-  which uses `--duration-window` (240ms) and `--ease-window`.
+  transform only. The window opening/closing animation is
+  not CSS UI motion: it lives in `src/window-animation.ts`.
 
 ### 8. Sync with main.ts
 
 `TOOLBAR_HEIGHT`, `SIDEBAR_WIDTH` and `SIDEBAR_COLLAPSED_WIDTH` in
 `src/main.ts` position the web page and must equal `--control-lg`,
 `--sidebar-width` and `--sidebar-collapsed` in `src/index.css`.
-`WINDOW_ANIMATION_MS` in `src/shared.ts` must equal `--duration-window`.

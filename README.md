@@ -73,8 +73,8 @@ Your settings, history and downloads list are kept: they live in
   downloads by itself on first launch
 - **Can be your default browser**: Settings → Navigation → Make default
 - **Smooth dividers**: soft gradients between areas instead of hard lines
-- **Window animations**: Nya zooms in when it opens and shrinks away when
-  it closes
+- **Window animations**: Nya rises into place in 3D with a glow of your
+  accent color when it opens, and tips back and falls away when it closes
 - **Your own shortcuts**: bind any action to a key or mouse button, and add
   shortcuts that open your favorite sites
 - **Private by default**: websites can't use your camera, microphone,

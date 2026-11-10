@@ -227,26 +227,12 @@ export interface Settings {
   windowAnimations: boolean;
 }
 
-/**
- * Length of the window open/close animation. Must match --duration-window
- * in index.css (main fades the window, the UI zooms in step with it).
- */
-export const WINDOW_ANIMATION_MS = 240;
-
 export interface Rect {
   x: number;
   y: number;
   width: number;
   height: number;
 }
-
-/**
- * Sent to the UI when the window opens or closes. On close, `snapshot` is a
- * picture of the web page (which CSS can't zoom) to show in its place.
- */
-export type WindowAnimation =
-  | { kind: 'open' }
-  | { kind: 'close'; snapshot: string | null; bounds: Rect };
 
 export const SEARCH_ENGINES: Record<
   SearchEngine,

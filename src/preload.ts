@@ -9,7 +9,6 @@ import type {
   PanelPage,
   Settings,
   TabsState,
-  WindowAnimation,
 } from './shared';
 
 contextBridge.exposeInMainWorld('browser', {
@@ -63,14 +62,6 @@ contextBridge.exposeInMainWorld('browser', {
     ipcRenderer.send('browser:update-settings', changes),
   clearBrowsingData: (): Promise<boolean> =>
     ipcRenderer.invoke('browser:clear-data'),
-  onWindowAnimation: (callback: (animation: WindowAnimation) => void) => {
-    ipcRenderer.on(
-      'browser:window-animation',
-      (_event, animation: WindowAnimation) => callback(animation),
-    );
-  },
-  windowAnimationReady: () =>
-    ipcRenderer.send('browser:window-animation-ready'),
   getDefaultBrowser: (): Promise<DefaultBrowserState> =>
     ipcRenderer.invoke('browser:default-browser-get'),
   makeDefaultBrowser: () => ipcRenderer.send('browser:default-browser-set'),

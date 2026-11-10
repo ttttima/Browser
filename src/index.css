@@ -51,11 +51,6 @@
 
   /* Motion */
   --duration: 150ms;
-  /* Window opening/closing only. Must match WINDOW_ANIMATION_MS in
-     shared.ts. */
-  --duration-window: 240ms;
-  --ease-window: cubic-bezier(0.25, 0.1, 0.25, 1);
-  --window-zoom: 0.92;
 
   /* Accent: replaced by the user's accent color at runtime. */
   --accent: #4f7cff;
@@ -1457,34 +1452,4 @@ body.smooth-dividers .list-row + .list-row {
   padding: 0 var(--space-3);
   border-radius: var(--radius);
   font-size: var(--text-md);
-}
-
-/* ------------------------------------------------------ window animations */
-
-/* The window fades in/out (main.ts) while everything zooms from/to 92%. */
-body.window-opening {
-  animation: window-open var(--duration-window) var(--ease-window);
-}
-
-body.window-closing {
-  animation: window-close var(--duration-window) var(--ease-window) forwards;
-}
-
-@keyframes window-open {
-  from {
-    transform: scale(var(--window-zoom));
-  }
-}
-
-@keyframes window-close {
-  to {
-    transform: scale(var(--window-zoom));
-  }
-}
-
-/* Picture of the web page, zoomed with the UI while the window closes. */
-#window-snapshot {
-  position: fixed;
-  z-index: 20;
-  pointer-events: none;
 }
