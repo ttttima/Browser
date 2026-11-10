@@ -17,7 +17,7 @@ import {
 } from 'electron';
 
 export const OPEN_MS = 640;
-export const CLOSE_MS = 420;
+export const CLOSE_MS = 380;
 
 /** One picture inside the window (the UI, or a web page on top of it). */
 export interface Layer {
@@ -96,7 +96,6 @@ const OVERLAY_HTML = `<!doctype html>
   window.animate = (kind, duration) => {
     const out = 'cubic-bezier(0.22, 0.61, 0.36, 1)';
     const inOut = 'cubic-bezier(0.45, 0, 0.55, 1)';
-    const accel = 'cubic-bezier(0.55, 0, 0.9, 0.5)';
     if (kind === 'open') {
       glow.animate([
         { opacity: 0, transform: 'scale(0.4)', easing: out },
@@ -117,14 +116,21 @@ const OVERLAY_HTML = `<!doctype html>
           boxShadow: '0 8px 32px rgba(0,0,0,0.35)' },
       ], { duration, fill: 'forwards' }).finished.then(() => true);
     }
+    // One continuous motion (no stop halfway): starts moving at once and
+    // keeps going. Opacity is its own track so it stays visible while it
+    // tips back, then fades as it falls away.
+    frame.animate([
+      { opacity: 1 },
+      { opacity: 1, offset: 0.3 },
+      { opacity: 0 },
+    ], { duration, easing: 'cubic-bezier(0.4, 0, 0.9, 0.6)', fill: 'forwards' });
     return frame.animate([
-      { opacity: 1, filter: 'blur(0px)', easing: out,
+      { filter: 'blur(0px)',
         transform: P + 'translateY(0px) rotateX(0deg) scale(1)' },
-      { opacity: 1, filter: 'blur(1px)', offset: 0.4, easing: accel,
-        transform: P + 'translateY(8px) rotateX(14deg) scale(0.88)' },
-      { opacity: 0, filter: 'blur(16px)',
+      { filter: 'blur(14px)',
         transform: P + 'translateY(96px) rotateX(38deg) scale(0.5)' },
-    ], { duration, fill: 'forwards' }).finished.then(() => true);
+    ], { duration, easing: 'cubic-bezier(0.3, 0.5, 0.6, 1)', fill: 'forwards' })
+      .finished.then(() => true);
   };
 
   window.clear = () => { document.body.textContent = ''; frame = glow = null; };
@@ -264,8 +270,8 @@ export async function playWindowAnimation(
     ]);
     await run(`prepare(${JSON.stringify(payload)})`);
     if (kind === 'close') {
-      // Let the stand-in reach the screen before the real window goes.
-      await new Promise((r) => setTimeout(r, 48));
+      // One frame for the stand-in to reach the screen, then swap.
+      await new Promise((r) => setTimeout(r, 16));
       await swap();
     }
     await run(`animate('${kind}', ${kind === 'open' ? OPEN_MS : CLOSE_MS})`);
