@@ -8,6 +8,10 @@ import {
   keyCombo,
   type ActionId,
   type CustomBinding,
+  type DownloadAction,
+  type DownloadInfo,
+  type HistoryEntry,
+  type PanelPage,
   SEARCH_ENGINES,
   type BrowserState,
   type PageEdges,
@@ -29,6 +33,17 @@ interface BrowserAPI {
   activateTab: (id: number) => void;
   moveTab: (id: number, toIndex: number) => void;
   toggleSidebar: () => void;
+  getHistory: () => Promise<HistoryEntry[]>;
+  deleteHistory: (id: string) => void;
+  clearHistory: () => void;
+  openUrl: (url: string) => void;
+  downloadAction: (id: string, action: DownloadAction) => void;
+  clearDownloads: () => void;
+  openDownloadsFolder: () => void;
+  showPage: (page: PanelPage) => void;
+  onDownloads: (callback: (downloads: DownloadInfo[]) => void) => void;
+  onHistoryChanged: (callback: () => void) => void;
+  onShowPage: (callback: (page: PanelPage) => void) => void;
   windowAction: (action: 'close' | 'minimize' | 'maximize') => void;
   platform: string;
   mouseButton: (button: number) => void;
@@ -385,6 +400,7 @@ const sidebarCollapsed = $<HTMLInputElement>('#setting-sidebar-collapsed');
 const showDividers = $<HTMLInputElement>('#setting-show-dividers');
 const forceDark = $<HTMLInputElement>('#setting-force-dark');
 const scrollTabs = $<HTMLInputElement>('#setting-scroll-tabs');
+const askDownload = $<HTMLInputElement>('#setting-ask-download');
 const smoothDividers = $<HTMLInputElement>('#setting-smooth-dividers');
 const smoothDividersRow = $<HTMLElement>('#smooth-dividers-row');
 
@@ -406,29 +422,61 @@ for (const [value, engine] of Object.entries(SEARCH_ENGINES)) {
 function setSettingsVisible(open: boolean) {
   settingsPage.hidden = !open;
   document.body.classList.toggle('settings-open', open);
-  openSettings.classList.toggle('active', open);
+  updatePanelButtons();
 }
 
-// Categories on the left of the settings page.
+// Pages on the left of the panel: settings categories, History, Downloads.
 const categories = document.querySelectorAll<HTMLButtonElement>('.category');
 const panels = document.querySelectorAll<HTMLElement>('.settings-panel');
+const openDownloads = $<HTMLButtonElement>('#open-downloads');
+const SETTINGS_PAGES: PanelPage[] = ['appearance', 'navigation', 'features'];
+let currentPage: PanelPage = 'appearance';
+let lastSettingsPage: PanelPage = 'appearance';
+
+function showPage(page: PanelPage) {
+  currentPage = page;
+  if (SETTINGS_PAGES.includes(page)) lastSettingsPage = page;
+  for (const button of categories) {
+    button.classList.toggle('active', button.dataset.category === page);
+  }
+  for (const panel of panels) panel.hidden = panel.dataset.panel !== page;
+  const active = [...categories].find((b) => b.dataset.category === page);
+  $('#settings-title').textContent =
+    active?.querySelector('.label')?.textContent ?? '';
+  updatePanelButtons();
+  if (page === 'history') void loadHistory();
+  if (page === 'downloads') renderDownloads();
+}
+
+/** Gear lit on settings pages, download arrow lit on Downloads. */
+function updatePanelButtons() {
+  const open = document.body.classList.contains('settings-open');
+  openSettings.classList.toggle(
+    'active',
+    open && SETTINGS_PAGES.includes(currentPage),
+  );
+  openDownloads.classList.toggle('active', open && currentPage === 'downloads');
+}
+
 for (const button of categories) {
-  button.addEventListener('click', () => {
-    for (const other of categories) {
-      other.classList.toggle('active', other === button);
-    }
-    for (const panel of panels) {
-      panel.hidden = panel.dataset.panel !== button.dataset.category;
-    }
-    $('#settings-title').textContent =
-      button.querySelector('.label')?.textContent ?? '';
-  });
+  button.addEventListener('click', () =>
+    showPage(button.dataset.category as PanelPage),
+  );
+}
+window.browser.onShowPage(showPage);
+
+/** Footer buttons: open their page, or close the panel if already there. */
+function togglePage(page: PanelPage, isThere: boolean) {
+  const open = document.body.classList.contains('settings-open');
+  if (open && isThere) window.browser.setSettingsOpen(false);
+  else window.browser.showPage(page);
 }
 
 openSettings.addEventListener('click', () =>
-  window.browser.setSettingsOpen(
-    !document.body.classList.contains('settings-open'),
-  ),
+  togglePage(lastSettingsPage, SETTINGS_PAGES.includes(currentPage)),
+);
+openDownloads.addEventListener('click', () =>
+  togglePage('downloads', currentPage === 'downloads'),
 );
 $('#close-settings').addEventListener('click', () =>
   window.browser.setSettingsOpen(false),
@@ -452,6 +500,9 @@ showDividers.addEventListener('change', () => {
 });
 forceDark.addEventListener('change', () =>
   window.browser.updateSettings({ forceDark: forceDark.checked }),
+);
+askDownload.addEventListener('change', () =>
+  window.browser.updateSettings({ askDownloadLocation: askDownload.checked }),
 );
 scrollTabs.addEventListener('change', () => {
   scrollTabsEnabled = scrollTabs.checked;
@@ -618,6 +669,335 @@ for (const input of themeInputs) {
     window.browser.updateSettings({ theme: input.value as Theme });
   });
 }
+
+// ---- history
+
+const historyList = $<HTMLDivElement>('#history-list');
+const historySearch = $<HTMLInputElement>('#history-search');
+const HISTORY_PAGE = 300;
+let historyEntries: HistoryEntry[] = [];
+let historyShown = HISTORY_PAGE;
+
+const ICONS = {
+  remove:
+    '<line x1="6" y1="6" x2="18" y2="18" /><line x1="18" y1="6" x2="6" y2="18" />',
+  pause:
+    '<line x1="9" y1="5" x2="9" y2="19" /><line x1="15" y1="5" x2="15" y2="19" />',
+  resume: '<polygon points="7 5 19 12 7 19 7 5" />',
+  folder:
+    '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />',
+  retry:
+    '<path d="M20 12a8 8 0 1 1-2.34-5.66L20 8.5" /><polyline points="20 4 20 8.5 15.5 8.5" />',
+  file: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" /><polyline points="14 3 14 9 20 9" />',
+};
+
+function iconButton(
+  icon: keyof typeof ICONS,
+  title: string,
+  onClick: () => void,
+) {
+  const button = document.createElement('button');
+  button.className = 'icon-button list-action';
+  button.title = title;
+  button.ariaLabel = title;
+  button.innerHTML = `<svg class="icon" viewBox="0 0 24 24" aria-hidden="true">${ICONS[icon]}</svg>`;
+  button.addEventListener('click', (event) => {
+    event.stopPropagation();
+    onClick();
+  });
+  return button;
+}
+
+function hostOf(url: string) {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '');
+  } catch {
+    return url;
+  }
+}
+
+function dayLabel(time: number) {
+  const day = new Date(time);
+  const today = new Date();
+  const startOf = (d: Date) =>
+    new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const diff = Math.round((startOf(today) - startOf(day)) / 86_400_000);
+  if (diff === 0) return 'Today';
+  if (diff === 1) return 'Yesterday';
+  return day.toLocaleDateString(undefined, {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: day.getFullYear() === today.getFullYear() ? undefined : 'numeric',
+  });
+}
+
+async function loadHistory() {
+  historyEntries = await window.browser.getHistory();
+  renderHistory();
+}
+
+function renderHistory() {
+  const query = historySearch.value.trim().toLowerCase();
+  const matches = query
+    ? historyEntries.filter(
+        (e) =>
+          e.title.toLowerCase().includes(query) ||
+          e.url.toLowerCase().includes(query),
+      )
+    : historyEntries;
+
+  if (matches.length === 0) {
+    historyList.replaceChildren(
+      emptyState(query ? 'Nothing matches your search' : 'No history yet'),
+    );
+    return;
+  }
+
+  // One card per day, newest first.
+  const cards: HTMLElement[] = [];
+  let card: HTMLElement | null = null;
+  let label = '';
+  for (const entry of matches.slice(0, historyShown)) {
+    const day = dayLabel(entry.time);
+    if (!card || day !== label) {
+      label = day;
+      card = document.createElement('div');
+      card.className = 'settings-card list-card';
+      const title = document.createElement('div');
+      title.className = 'card-title';
+      title.textContent = day;
+      card.append(title);
+      cards.push(card);
+    }
+    card.append(historyRow(entry));
+  }
+
+  if (matches.length > historyShown) {
+    const more = document.createElement('button');
+    more.className = 'text-button show-more';
+    more.textContent = `Show more (${matches.length - historyShown})`;
+    more.addEventListener('click', () => {
+      historyShown += HISTORY_PAGE;
+      renderHistory();
+    });
+    cards.push(more);
+  }
+  historyList.replaceChildren(...cards);
+}
+
+function historyRow(entry: HistoryEntry) {
+  const row = document.createElement('div');
+  row.className = 'list-row clickable';
+  row.tabIndex = 0;
+  row.title = entry.url;
+
+  const badge = document.createElement('span');
+  badge.className = 'tab-icon letter';
+  badge.textContent = (hostOf(entry.url)[0] ?? '•').toUpperCase();
+
+  const text = document.createElement('span');
+  text.className = 'list-text';
+  const title = document.createElement('span');
+  title.className = 'list-title';
+  title.textContent = entry.title || hostOf(entry.url);
+  const sub = document.createElement('small');
+  sub.textContent = hostOf(entry.url);
+  text.append(title, sub);
+
+  const time = document.createElement('small');
+  time.className = 'list-meta';
+  time.textContent = new Date(entry.time).toLocaleTimeString(undefined, {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+
+  const remove = iconButton('remove', 'Remove from history', () => {
+    window.browser.deleteHistory(entry.id);
+    historyEntries = historyEntries.filter((e) => e.id !== entry.id);
+    renderHistory();
+  });
+
+  const open = () => window.browser.openUrl(entry.url);
+  row.addEventListener('click', open);
+  row.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') open();
+  });
+  row.append(badge, text, time, remove);
+  return row;
+}
+
+function emptyState(message: string) {
+  const empty = document.createElement('p');
+  empty.className = 'empty-state';
+  empty.textContent = message;
+  return empty;
+}
+
+historySearch.addEventListener('input', () => {
+  historyShown = HISTORY_PAGE;
+  renderHistory();
+});
+$('#history-clear').addEventListener('click', () => {
+  if (!confirm('Delete your whole browsing history?')) return;
+  window.browser.clearHistory();
+  historyEntries = [];
+  renderHistory();
+});
+window.browser.onHistoryChanged(() => {
+  if (currentPage === 'history' && !settingsPage.hidden) void loadHistory();
+});
+
+// ---- downloads
+
+const downloadsList = $<HTMLDivElement>('#downloads-list');
+let downloads: DownloadInfo[] = [];
+/** Last measurement per download, to show the speed. */
+const speeds = new Map<
+  string,
+  { bytes: number; time: number; speed: number }
+>();
+
+function formatBytes(bytes: number) {
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit++;
+  }
+  return `${value.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`;
+}
+
+function downloadStatus(d: DownloadInfo) {
+  const size = d.total
+    ? `${formatBytes(d.received)} of ${formatBytes(d.total)}`
+    : formatBytes(d.received);
+  switch (d.state) {
+    case 'progressing': {
+      const speed = speeds.get(d.id)?.speed ?? 0;
+      return speed > 0 ? `${size} · ${formatBytes(speed)}/s` : size;
+    }
+    case 'paused':
+      return `Paused · ${size}`;
+    case 'completed':
+      return d.exists
+        ? `${formatBytes(d.total)} · ${hostOf(d.url)}`
+        : 'File deleted or moved';
+    case 'cancelled':
+      return 'Cancelled';
+    case 'interrupted':
+      return 'Failed';
+  }
+}
+
+function measureSpeeds() {
+  const now = Date.now();
+  for (const d of downloads) {
+    const last = speeds.get(d.id);
+    if (d.state !== 'progressing') {
+      speeds.delete(d.id);
+    } else if (!last) {
+      speeds.set(d.id, { bytes: d.received, time: now, speed: 0 });
+    } else if (now - last.time >= 500) {
+      const current = ((d.received - last.bytes) * 1000) / (now - last.time);
+      // Smooth it so the number doesn't jump around.
+      const speed = last.speed ? last.speed * 0.6 + current * 0.4 : current;
+      speeds.set(d.id, { bytes: d.received, time: now, speed });
+    }
+  }
+}
+
+function renderDownloads() {
+  if (downloads.length === 0) {
+    downloadsList.replaceChildren(emptyState('No downloads yet'));
+    return;
+  }
+  downloadsList.replaceChildren(...downloads.map(downloadRow));
+}
+
+function downloadRow(d: DownloadInfo) {
+  const row = document.createElement('div');
+  row.className = 'list-row download-row';
+  const canOpen = d.state === 'completed' && d.exists;
+  row.classList.toggle('clickable', canOpen);
+  row.classList.toggle(
+    'faded',
+    !canOpen && d.state !== 'progressing' && d.state !== 'paused',
+  );
+
+  const icon = document.createElement('span');
+  icon.className = 'list-icon';
+  icon.innerHTML = `<svg class="icon" viewBox="0 0 24 24" aria-hidden="true">${ICONS.file}</svg>`;
+
+  const text = document.createElement('span');
+  text.className = 'list-text';
+  const name = document.createElement('span');
+  name.className = 'list-title';
+  name.textContent = d.filename || 'Download';
+  const status = document.createElement('small');
+  status.textContent = downloadStatus(d);
+  text.append(name, status);
+
+  if (d.state === 'progressing' || d.state === 'paused') {
+    const bar = document.createElement('span');
+    bar.className = 'progress';
+    bar.classList.toggle('unknown', !d.total);
+    const fill = document.createElement('span');
+    fill.style.width = d.total
+      ? `${Math.min(100, (d.received / d.total) * 100)}%`
+      : '100%';
+    bar.append(fill);
+    text.append(bar);
+  }
+
+  const actions = document.createElement('span');
+  actions.className = 'list-actions';
+  const act = (action: DownloadAction) => () =>
+    window.browser.downloadAction(d.id, action);
+  if (d.state === 'progressing') {
+    actions.append(iconButton('pause', 'Pause', act('pause')));
+    actions.append(iconButton('remove', 'Cancel', act('cancel')));
+  } else if (d.state === 'paused') {
+    if (d.canResume)
+      actions.append(iconButton('resume', 'Resume', act('resume')));
+    actions.append(iconButton('remove', 'Cancel', act('cancel')));
+  } else {
+    if (canOpen)
+      actions.append(iconButton('folder', 'Show in folder', act('show')));
+    if (d.state !== 'completed')
+      actions.append(iconButton('retry', 'Try again', act('retry')));
+    actions.append(iconButton('remove', 'Remove from list', act('remove')));
+  }
+
+  if (canOpen) {
+    row.tabIndex = 0;
+    row.title = 'Open file';
+    row.addEventListener('click', act('open'));
+    row.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') act('open')();
+    });
+  }
+  row.append(icon, text, actions);
+  return row;
+}
+
+window.browser.onDownloads((list) => {
+  downloads = list;
+  measureSpeeds();
+  // The footer arrow glows in the accent color while something downloads.
+  openDownloads.classList.toggle(
+    'busy',
+    list.some((d) => d.state === 'progressing'),
+  );
+  if (currentPage === 'downloads' && !settingsPage.hidden) renderDownloads();
+});
+$('#downloads-folder').addEventListener('click', () =>
+  window.browser.openDownloadsFolder(),
+);
+$('#downloads-clear').addEventListener('click', () =>
+  window.browser.clearDownloads(),
+);
 
 // ---- shortcuts (bindings)
 
@@ -834,6 +1214,7 @@ window.browser.onSettingsChanged((settings) => {
   forceDark.checked = settings.forceDark;
   scrollTabs.checked = settings.scrollTabs;
   scrollTabsEnabled = settings.scrollTabs;
+  askDownload.checked = settings.askDownloadLocation;
   currentBindings = settings.bindings;
   customBindings = settings.customBindings;
   // Don't rebuild the list under the user's cursor while they type a link.

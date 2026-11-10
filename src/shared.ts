@@ -47,6 +47,8 @@ export const ACTIONS = [
   { id: 'focusAddress', label: 'Address bar', binding: '' },
   { id: 'toggleSidebar', label: 'Compact sidebar', binding: '' },
   { id: 'openSettings', label: 'Settings', binding: '' },
+  { id: 'openHistory', label: 'History', binding: '' },
+  { id: 'openDownloads', label: 'Downloads', binding: '' },
   { id: 'zoomIn', label: 'Zoom in', binding: '' },
   { id: 'zoomOut', label: 'Zoom out', binding: '' },
   { id: 'zoomReset', label: 'Reset zoom', binding: '' },
@@ -119,6 +121,56 @@ export function bindingLabel(binding: string) {
     .replace('ArrowDown', '↓');
 }
 
+// ---------------------------------------------------------------- library
+
+export interface HistoryEntry {
+  id: string;
+  url: string;
+  title: string;
+  /** When it was visited, in ms since 1970. */
+  time: number;
+}
+
+export type DownloadState =
+  | 'progressing'
+  | 'paused'
+  | 'completed'
+  | 'cancelled'
+  | 'interrupted';
+
+export interface DownloadInfo {
+  id: string;
+  filename: string;
+  url: string;
+  /** Where the file is saved ("" until chosen in a Save dialog). */
+  path: string;
+  received: number;
+  /** 0 when the server doesn't say how big the file is. */
+  total: number;
+  state: DownloadState;
+  started: number;
+  canResume: boolean;
+  /** For completed downloads: is the file still on disk? */
+  exists: boolean;
+}
+
+export type DownloadAction =
+  | 'pause'
+  | 'resume'
+  | 'cancel'
+  | 'open'
+  | 'show'
+  | 'retry'
+  | 'remove';
+
+/** Pages that open in the full-window panel next to the settings. */
+export type PanelPage =
+  | 'appearance'
+  | 'navigation'
+  | 'features'
+  | 'history'
+  | 'downloads';
+
 export type Theme = 'dark' | 'light' | 'oled';
 
 export const THEMES: Theme[] = ['dark', 'light', 'oled'];
@@ -156,6 +208,8 @@ export interface Settings {
   forceDark: boolean;
   /** Mouse wheel over the sidebar switches tabs. */
   scrollTabs: boolean;
+  /** Show a Save dialog for every download instead of using Downloads. */
+  askDownloadLocation: boolean;
   /** Key or mouse button for each action ("" = not set). */
   bindings: Bindings;
   /** User-made shortcuts that open a site. */
@@ -184,6 +238,7 @@ export const DEFAULT_SETTINGS: Settings = {
   smoothDividers: false,
   forceDark: false,
   scrollTabs: false,
+  askDownloadLocation: false,
   bindings: defaultBindings(),
   customBindings: [],
   theme: 'dark',

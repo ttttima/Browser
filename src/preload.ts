@@ -1,5 +1,14 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { BrowserState, PageEdges, Settings, TabsState } from './shared';
+import type {
+  BrowserState,
+  DownloadAction,
+  DownloadInfo,
+  HistoryEntry,
+  PageEdges,
+  PanelPage,
+  Settings,
+  TabsState,
+} from './shared';
 
 contextBridge.exposeInMainWorld('browser', {
   navigate: (url: string) => ipcRenderer.send('browser:navigate', url),
@@ -14,6 +23,30 @@ contextBridge.exposeInMainWorld('browser', {
   moveTab: (id: number, toIndex: number) =>
     ipcRenderer.send('browser:move-tab', id, toIndex),
   toggleSidebar: () => ipcRenderer.send('browser:toggle-sidebar'),
+
+  getHistory: (): Promise<HistoryEntry[]> =>
+    ipcRenderer.invoke('browser:history-get'),
+  deleteHistory: (id: string) => ipcRenderer.send('browser:history-delete', id),
+  clearHistory: () => ipcRenderer.send('browser:history-clear'),
+  openUrl: (url: string) => ipcRenderer.send('browser:open-url', url),
+  downloadAction: (id: string, action: DownloadAction) =>
+    ipcRenderer.send('browser:download-action', id, action),
+  clearDownloads: () => ipcRenderer.send('browser:downloads-clear'),
+  openDownloadsFolder: () => ipcRenderer.send('browser:downloads-folder'),
+  showPage: (page: PanelPage) => ipcRenderer.send('browser:show-page', page),
+  onDownloads: (callback: (downloads: DownloadInfo[]) => void) => {
+    ipcRenderer.on('browser:downloads', (_event, downloads: DownloadInfo[]) =>
+      callback(downloads),
+    );
+  },
+  onHistoryChanged: (callback: () => void) => {
+    ipcRenderer.on('browser:history-changed', () => callback());
+  },
+  onShowPage: (callback: (page: PanelPage) => void) => {
+    ipcRenderer.on('browser:show-page', (_event, page: PanelPage) =>
+      callback(page),
+    );
+  },
   windowAction: (action: 'close' | 'minimize' | 'maximize') =>
     ipcRenderer.send('browser:window', action),
   platform: process.platform,

@@ -42,6 +42,13 @@
       </div>
 
       <div class="bar bar-end">
+        <button id="open-downloads" class="icon-button" title="Downloads">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+            <line x1="12" y1="4" x2="12" y2="15" />
+            <polyline points="7 10 12 15 17 10" />
+            <line x1="5" y1="20" x2="19" y2="20" />
+          </svg>
+        </button>
         <button id="open-settings" class="icon-button" title="Settings">
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
             <circle cx="12" cy="12" r="3" />
@@ -165,6 +172,22 @@
               <rect x="14" y="14" width="6" height="6" rx="1" />
             </svg>
             <span class="label">Features</span>
+          </button>
+          <div class="nav-divider" role="separator"></div>
+          <button class="row category" data-category="history">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="12" cy="12" r="9" />
+              <polyline points="12 7 12 12 15 15" />
+            </svg>
+            <span class="label">History</span>
+          </button>
+          <button class="row category" data-category="downloads">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+              <line x1="12" y1="4" x2="12" y2="15" />
+              <polyline points="7 10 12 15 17 10" />
+              <line x1="5" y1="20" x2="19" y2="20" />
+            </svg>
+            <span class="label">Downloads</span>
           </button>
         </div>
       </nav>
@@ -354,8 +377,8 @@
                   <span>
                     <strong>Clear browsing data</strong>
                     <small
-                      >Signs you out of websites and deletes cookies and
-                      cache</small
+                      >Signs you out of websites and deletes cookies, cache and
+                      history</small
                     >
                   </span>
                   <button id="clear-data" class="danger">Clear data</button>
@@ -377,6 +400,49 @@
                     Add custom
                   </button>
                 </div>
+              </div>
+            </section>
+
+            <section class="settings-panel" data-panel="history" hidden>
+              <div class="panel-tools">
+                <input
+                  id="history-search"
+                  type="text"
+                  placeholder="Search history"
+                  spellcheck="false"
+                />
+                <button id="history-clear" class="danger">Clear history</button>
+              </div>
+              <div id="history-list"></div>
+            </section>
+
+            <section class="settings-panel" data-panel="downloads" hidden>
+              <div class="settings-card">
+                <label class="setting-row">
+                  <span>
+                    <strong>Ask where to save each file</strong>
+                    <small>Otherwise files go straight to Downloads</small>
+                  </span>
+                  <input
+                    id="setting-ask-download"
+                    type="checkbox"
+                    class="switch"
+                  />
+                </label>
+              </div>
+              <div class="settings-card">
+                <div class="card-title">
+                  <span>Files</span>
+                  <span class="card-title-actions">
+                    <button id="downloads-folder" class="text-button">
+                      Open folder
+                    </button>
+                    <button id="downloads-clear" class="text-button">
+                      Clear list
+                    </button>
+                  </span>
+                </div>
+                <div id="downloads-list"></div>
               </div>
             </section>
           </div>

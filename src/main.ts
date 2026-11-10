@@ -15,6 +15,19 @@ import fs from 'node:fs';
 import path from 'node:path';
 import started from 'electron-squirrel-startup';
 import {
+  clearDownloads,
+  clearHistory,
+  deleteHistoryEntry,
+  downloadAction,
+  getDownloads,
+  getHistory,
+  initDownloads,
+  initHistory,
+  openDownloadsFolder,
+  recordVisit,
+  updateVisitTitle,
+} from './library';
+import {
   DEFAULT_SETTINGS,
   SEARCH_ENGINES,
   THEME_BACKGROUNDS,
@@ -33,6 +46,8 @@ import {
   type ActionId,
   type Bindings,
   type CustomBinding,
+  type DownloadAction,
+  type PanelPage,
 } from './shared';
 
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string;
@@ -77,6 +92,8 @@ interface Tab {
   isNewTab: boolean;
   /** Give focus back to the address bar once the first page has loaded. */
   focusAddressOnLoad: boolean;
+  /** History entry of the page shown now (to add its title later). */
+  historyId: string | null;
 }
 
 let window: BrowserWindow | null = null;
@@ -152,6 +169,7 @@ function sanitizeSettings(value: Partial<Settings>): Settings {
     smoothDividers: value.smoothDividers === true,
     forceDark: value.forceDark === true,
     scrollTabs: value.scrollTabs === true,
+    askDownloadLocation: value.askDownloadLocation === true,
     bindings: sanitizeBindings(value.bindings),
     customBindings: sanitizeCustomBindings(value.customBindings),
     theme: THEMES.includes(value.theme as Theme)
@@ -475,6 +493,12 @@ function activateTab(id: number) {
   else pageOf(tab)?.focus();
 }
 
+/** Opens the full-window panel on one page (e.g. History). */
+function showPanelPage(page: PanelPage) {
+  setSettingsOpen(true);
+  sendToUi('browser:show-page', page);
+}
+
 function setSettingsOpen(open: boolean) {
   if (settingsOpen === open) return;
   settingsOpen = open;
@@ -491,6 +515,7 @@ async function clearBrowsingData() {
   await session.defaultSession.clearStorageData();
   await session.defaultSession.clearCache();
   closedTabUrls = [];
+  clearHistory();
 }
 
 /** Opens a tab. With no URL it shows the clean search page. */
@@ -522,6 +547,7 @@ function createTab(
     failedUrl: null,
     isNewTab: !url,
     focusAddressOnLoad: false,
+    historyId: null,
   };
 
   const activeIndex = tabs.findIndex((t) => t.id === activeTabId);
@@ -654,6 +680,17 @@ function wireTab(tab: Tab) {
 
   contents.on('did-navigate', changed);
   contents.on('did-navigate-in-page', changed);
+
+  // History: every page you go to, including in-page navigation on sites
+  // like YouTube that change the address without reloading.
+  const remember = (url: string) => {
+    if (!isWebUrl(url)) return;
+    tab.historyId = recordVisit(url, contents.getTitle());
+  };
+  contents.on('did-navigate', (_event, url) => remember(url));
+  contents.on('did-navigate-in-page', (_event, url, isMainFrame) => {
+    if (isMainFrame) remember(url);
+  });
   contents.on('did-start-loading', changed);
   contents.on('did-stop-loading', changed);
   contents.on('did-stop-loading', () => {
@@ -695,6 +732,7 @@ function wireTab(tab: Tab) {
 
   contents.on('page-title-updated', (_event, title) => {
     tab.title = title;
+    if (tab.historyId) updateVisitTitle(tab.historyId, title);
     changed();
   });
 
@@ -854,6 +892,10 @@ function runAction(action: ActionId) {
       return focusAddressBar();
     case 'toggleSidebar':
       return toggleSidebar();
+    case 'openHistory':
+      return showPanelPage('history');
+    case 'openDownloads':
+      return showPanelPage('downloads');
     case 'openSettings':
       return setSettingsOpen(!settingsOpen);
     case 'zoomIn':
@@ -969,6 +1011,7 @@ function createWindow() {
 
   // Send everything again when the UI (re)loads.
   win.webContents.on('did-finish-load', () => {
+    sendToUi('browser:downloads', getDownloads());
     sendSettings();
     sendTabs();
     sendState();
@@ -1049,6 +1092,61 @@ function setUpIpc() {
   ipcMain.on('browser:recording-binding', (event, on: unknown) => {
     if (fromUi(event.sender)) recordingBinding = on === true;
   });
+  // History and Downloads pages.
+  ipcMain.handle('browser:history-get', (event) =>
+    fromUi(event.sender) ? getHistory() : [],
+  );
+  ipcMain.on('browser:history-delete', (event, id: unknown) => {
+    if (fromUi(event.sender) && typeof id === 'string') deleteHistoryEntry(id);
+  });
+  ipcMain.on('browser:history-clear', (event) => {
+    if (fromUi(event.sender)) clearHistory();
+  });
+  ipcMain.on('browser:open-url', (event, url: unknown) => {
+    if (!fromUi(event.sender) || typeof url !== 'string' || !isWebUrl(url)) {
+      return;
+    }
+    createTab(url);
+  });
+  ipcMain.on(
+    'browser:download-action',
+    (event, id: unknown, action: unknown) => {
+      const actions: DownloadAction[] = [
+        'pause',
+        'resume',
+        'cancel',
+        'open',
+        'show',
+        'retry',
+        'remove',
+      ];
+      if (
+        fromUi(event.sender) &&
+        typeof id === 'string' &&
+        actions.includes(action as DownloadAction)
+      ) {
+        downloadAction(id, action as DownloadAction);
+      }
+    },
+  );
+  ipcMain.on('browser:downloads-clear', (event) => {
+    if (fromUi(event.sender)) clearDownloads();
+  });
+  ipcMain.on('browser:downloads-folder', (event) => {
+    if (fromUi(event.sender)) openDownloadsFolder();
+  });
+  ipcMain.on('browser:show-page', (event, page: unknown) => {
+    const pages: PanelPage[] = [
+      'appearance',
+      'navigation',
+      'features',
+      'history',
+      'downloads',
+    ];
+    if (fromUi(event.sender) && pages.includes(page as PanelPage)) {
+      showPanelPage(page as PanelPage);
+    }
+  });
   // Our own window buttons (the window has no system title bar).
   ipcMain.on('browser:window', (event, action: unknown) => {
     if (!fromUi(event.sender) || !window || window.isDestroyed()) return;
@@ -1109,6 +1207,11 @@ app.whenReady().then(() => {
   );
 
   loadSettings();
+  initHistory(() => sendToUi('browser:history-changed', null));
+  initDownloads(session.defaultSession, {
+    askWhere: () => settings.askDownloadLocation,
+    onChange: () => sendToUi('browser:downloads', getDownloads()),
+  });
   applyTheme();
   setUpIpc();
   // Pages change color as you scroll or switch dark mode: keep checking.

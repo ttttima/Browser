@@ -288,8 +288,9 @@ input::placeholder {
   -webkit-app-region: no-drag;
 }
 
+/* Footer: downloads on the left, settings on the right, mirrored. */
 .bar-end {
-  justify-content: flex-end;
+  justify-content: space-between;
   border-top: 1px solid var(--divider);
   border-bottom: none;
 }
@@ -484,6 +485,16 @@ input::placeholder {
   color: var(--text-strong);
 }
 
+#open-downloads.busy {
+  color: var(--accent);
+}
+
+/* Compact sidebar: only room for one button. */
+body.sidebar-collapsed #open-downloads {
+  display: none;
+}
+
+#open-downloads.active,
 #open-settings.active {
   background: var(--accent-soft);
   color: var(--accent);
@@ -1254,4 +1265,186 @@ body.window-inactive .window-controls:not(:hover) .light {
 /* macOS draws its own native traffic lights. */
 body.platform-darwin .window-controls {
   display: none;
+}
+
+/* ============================================================ history & downloads */
+
+/* Line between the settings pages and History / Downloads in the nav. */
+.nav-divider {
+  height: 1px;
+  margin: var(--space-2) var(--space-2);
+  background: var(--divider);
+}
+
+body.smooth-dividers .nav-divider {
+  background: linear-gradient(
+    to right,
+    transparent,
+    var(--divider) var(--fade),
+    var(--divider) calc(100% - var(--fade)),
+    transparent
+  );
+}
+
+.panel-tools {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.panel-tools input {
+  flex: 1;
+  min-width: 0;
+}
+
+#history-list,
+#downloads-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+#downloads-list {
+  gap: 0;
+}
+
+.card-title-actions {
+  display: flex;
+  gap: var(--space-1);
+}
+
+/* Rows reach the card edges so hover fills the whole width. */
+.list-card,
+#downloads-list {
+  overflow: hidden;
+}
+
+.list-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--control-lg);
+  margin: 0 calc(var(--space-4) * -1);
+  padding: var(--space-2) var(--space-4);
+  transition: background var(--duration);
+}
+
+.list-row + .list-row {
+  border-top: 1px solid var(--divider);
+}
+
+body.smooth-dividers .list-row + .list-row {
+  border-image: linear-gradient(
+      to right,
+      transparent,
+      var(--divider) var(--fade),
+      var(--divider) calc(100% - var(--fade)),
+      transparent
+    )
+    1;
+}
+
+.list-row.clickable {
+  cursor: pointer;
+}
+
+.list-row.clickable:hover {
+  background: var(--hover);
+}
+
+.list-row.faded .list-text {
+  opacity: 0.6;
+}
+
+.list-icon {
+  display: grid;
+  place-items: center;
+  width: var(--icon);
+  color: var(--muted);
+}
+
+.list-text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  flex: 1;
+  min-width: 0;
+}
+
+.list-title {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.list-text small,
+.list-meta {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.list-actions {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.list-action {
+  width: var(--control-sm);
+  height: var(--control-sm);
+  min-width: var(--control-sm);
+  border-radius: var(--radius-sm);
+}
+
+/* History: the remove button shows on hover, like a tab's close button. */
+#history-list .list-action {
+  visibility: hidden;
+}
+
+#history-list .list-row:hover .list-action,
+#history-list .list-row:focus-within .list-action {
+  visibility: visible;
+}
+
+.progress {
+  position: relative;
+  height: var(--space-1);
+  overflow: hidden;
+  border-radius: var(--radius-full);
+  background: var(--chip);
+}
+
+.progress > span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: var(--radius-full);
+  background: var(--accent);
+  transition: width var(--duration);
+}
+
+/* Size unknown: a soft pulsing bar instead of a percentage. */
+.progress.unknown > span {
+  animation: pulse 1200ms ease-in-out infinite;
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.4;
+  }
+}
+
+.empty-state {
+  margin: 0;
+  padding: var(--space-12) 0;
+  color: var(--muted);
+  text-align: center;
+}
+
+.show-more {
+  align-self: center;
+  height: var(--control);
+  padding: 0 var(--space-3);
+  border-radius: var(--radius);
+  font-size: var(--text-md);
 }
