@@ -173,7 +173,7 @@ function applyTheme() {
     window.setBackgroundColor(THEME_BACKGROUNDS[settings.theme]);
   }
   for (const tab of tabs) {
-    if (!tab.view.webContents.isDestroyed()) {
+    if (pageOf(tab)) {
       tab.view.setBackgroundColor(tabBackground());
     }
   }
@@ -297,16 +297,24 @@ function activeTab(): Tab | null {
   return activeTabId === null ? null : (findTab(activeTabId) ?? null);
 }
 
+/**
+ * A tab's page, or null once it is gone. When a page is destroyed (e.g.
+ * while the app quits) Electron removes it entirely, so never touch
+ * tab.view.webContents directly.
+ */
+function pageOf(tab: Tab | null | undefined): WebContents | null {
+  const contents = tab?.view.webContents as WebContents | undefined;
+  return contents && !contents.isDestroyed() ? contents : null;
+}
+
 function activeContents(): WebContents | null {
-  const tab = activeTab();
-  if (!tab || tab.view.webContents.isDestroyed()) return null;
-  return tab.view.webContents;
+  return pageOf(activeTab());
 }
 
 /** The URL to show for a tab (the failed URL instead of the error page). */
 function shownUrl(tab: Tab) {
   if (tab.isNewTab) return '';
-  const current = tab.view.webContents.getURL();
+  const current = pageOf(tab)?.getURL() ?? '';
   return current.startsWith('data:') && tab.failedUrl ? tab.failedUrl : current;
 }
 
@@ -329,7 +337,7 @@ function sendTabs() {
         title: tabTitle(tab),
         url: shownUrl(tab),
         favicon: tab.favicon,
-        loading: tab.view.webContents.isLoading(),
+        loading: pageOf(tab)?.isLoading() ?? false,
         isNewTab: tab.isNewTab,
       }),
     ),
@@ -343,8 +351,8 @@ function sendTabs() {
 
 function sendState() {
   const tab = activeTab();
-  if (!tab) return;
-  const contents = tab.view.webContents;
+  const contents = pageOf(tab);
+  if (!tab || !contents) return;
   const state: BrowserState = {
     url: shownUrl(tab),
     canGoBack: contents.navigationHistory.canGoBack(),
@@ -426,14 +434,14 @@ async function samplePageEdges() {
     !htmlFullScreen &&
     settings.showDividers &&
     settings.smoothDividers;
-  if (!tab || !visible || tab.view.webContents.isDestroyed()) return;
+  if (!tab || !visible || !pageOf(tab)) return;
 
   const { width, height } = tab.view.getBounds();
   if (width < 8 || height < 8) return;
   try {
     const [left, top] = await Promise.all([
-      tab.view.webContents.capturePage({ x: 0, y: 0, width: 2, height }),
-      tab.view.webContents.capturePage({ x: 0, y: 0, width, height: 2 }),
+      pageOf(tab)!.capturePage({ x: 0, y: 0, width: 2, height }),
+      pageOf(tab)!.capturePage({ x: 0, y: 0, width, height: 2 }),
     ]);
     const edges: PageEdges = {
       left: dominantColor(left),
@@ -464,7 +472,7 @@ function activateTab(id: number) {
   sendState();
   updateWindowTitle();
   if (tab.isNewTab) focusAddressBar();
-  else if (!tab.view.webContents.isDestroyed()) tab.view.webContents.focus();
+  else pageOf(tab)?.focus();
 }
 
 function setSettingsOpen(open: boolean) {
@@ -552,7 +560,7 @@ function closeTab(id: number) {
   if (window && !window.isDestroyed()) {
     window.contentView.removeChildView(tab.view);
   }
-  if (!tab.view.webContents.isDestroyed()) tab.view.webContents.close();
+  pageOf(tab)?.close();
 
   if (tabs.length === 0) {
     // Closing the last tab closes the window, like other browsers.
@@ -625,9 +633,9 @@ function tabBackground() {
  */
 function updateForcedDarkAll() {
   for (const tab of tabs) {
-    if (tab.view.webContents.isDestroyed()) continue;
+    if (!pageOf(tab)) continue;
     tab.view.setBackgroundColor(tabBackground());
-    tab.view.webContents.send('browser:force-dark', settings.forceDark);
+    pageOf(tab)?.send('browser:force-dark', settings.forceDark);
   }
 }
 
@@ -972,7 +980,7 @@ function createWindow() {
     activeTabId = null;
     if (window === win) window = null;
     for (const tab of closing) {
-      if (!tab.view.webContents.isDestroyed()) tab.view.webContents.close();
+      pageOf(tab)?.close();
     }
   });
 
@@ -1032,7 +1040,7 @@ function setUpIpc() {
   );
   // Mouse side buttons, reported by the UI and by tab-preload.ts in pages.
   ipcMain.on('browser:mouse-button', (event, button: unknown) => {
-    const fromTab = tabs.some((tab) => tab.view.webContents === event.sender);
+    const fromTab = tabs.some((tab) => pageOf(tab) === event.sender);
     if (!fromUi(event.sender) && !fromTab) return;
     if (recordingBinding || typeof button !== 'number') return;
     const action = actionFor(MOUSE_BUTTONS[button] ?? '');
@@ -1085,6 +1093,12 @@ function setUpIpc() {
 }
 
 app.whenReady().then(() => {
+  // Started by the Windows installer only to create shortcuts: do nothing
+  // else (electron-squirrel-startup already handled it and we are quitting).
+  if (started) {
+    app.quit();
+    return;
+  }
   session.defaultSession.setPermissionRequestHandler(
     (_contents, permission, callback) => {
       callback(ALLOWED_PERMISSIONS.has(permission));
