@@ -5,6 +5,14 @@
   "private": true,
   "description": "A clean, minimal web browser with vertical tabs",
   "keywords": [],
+  "homepage": "https://github.com/ttttima/Browser#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ttttima/Browser.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ttttima/Browser/issues"
+  },
   "license": "MIT",
   "author": {
     "name": "Tima",

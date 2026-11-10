@@ -714,8 +714,15 @@ function wireTab(tab: Tab) {
         contents.focus();
       }
     }
+  });
+
+  // A new page really loaded: forget the old title and icon. (Not on
+  // did-start-navigation: a link that turns out to be a download never
+  // leaves the page, and the tab would lose its title.)
+  contents.on('did-navigate', () => {
     tab.favicon = null;
-    tab.title = '';
+    tab.title =
+      contents.getTitle() === contents.getURL() ? '' : contents.getTitle();
   });
 
   contents.on(
