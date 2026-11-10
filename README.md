@@ -27,8 +27,7 @@ irm https://raw.githubusercontent.com/ttttima/Browser/main/install.ps1 | iex
 ```
 
 It downloads the newest Nya, installs it just for you (no administrator
-rights), adds Start menu and desktop shortcuts, and starts it. Run it again
-any time to update.
+rights), adds Start menu and desktop shortcuts, and starts it.
 
 **Or download it** from the [Releases](https://github.com/ttttima/Browser/releases)
 page:
@@ -39,6 +38,26 @@ page:
 Nya isn't code-signed yet, so Windows may say _"Windows protected your PC"_
 for downloaded files. Click **More info → Run anyway**. The PowerShell line
 above doesn't trigger this.
+
+## Update
+
+Nya doesn't update by itself yet. Update the same way you installed it:
+
+- **PowerShell line:** paste the same line again. It closes Nya, puts the
+  newest version in place and starts it.
+
+  ```powershell
+  irm https://raw.githubusercontent.com/ttttima/Browser/main/install.ps1 | iex
+  ```
+
+- **Setup.exe:** download the newest `Nya-x.y.z-Setup.exe` from
+  [Releases](https://github.com/ttttima/Browser/releases) and run it. It
+  replaces the old version.
+- **Portable zip:** download the newest zip, close Nya and unzip it over the
+  old folder.
+
+Your settings, history and downloads list are kept: they live in
+`%APPDATA%\Nya`, not in the app folder.
 
 ## Features
 
