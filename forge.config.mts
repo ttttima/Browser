@@ -6,6 +6,28 @@ import { MakerRpm } from '@electron-forge/maker-rpm';
 import { VitePlugin } from '@electron-forge/plugin-vite';
 import { FusesPlugin } from '@electron-forge/plugin-fuses';
 import { FuseV1Options, FuseVersion } from '@electron/fuses';
+import { spawnSync } from 'node:child_process';
+
+// Widevine VMP signing, which Netflix and some other services require. It
+// runs automatically when castLabs' tool is installed and signed in
+// (`pip install castlabs-evs`, then `python -m castlabs_evs.account signup`).
+// Without it the build still works and plays most protected media.
+function vmpSign(appDir: string) {
+  const python = process.platform === 'win32' ? 'python' : 'python3';
+  const check = spawnSync(python, ['-c', 'import castlabs_evs'], {
+    stdio: 'ignore',
+  });
+  if (check.status !== 0) {
+    console.warn('VMP signing skipped: castlabs-evs is not installed.');
+    return;
+  }
+  const result = spawnSync(
+    python,
+    ['-m', 'castlabs_evs.vmp', 'sign-pkg', appDir],
+    { stdio: 'inherit' },
+  );
+  if (result.status !== 0) throw new Error('VMP signing failed.');
+}
 
 const config: ForgeConfig = {
   packagerConfig: {
@@ -13,8 +35,22 @@ const config: ForgeConfig = {
     // App icon: assets/icon.ico on Windows (.icns on macOS if added later).
     icon: 'assets/icon',
     executableName: 'Nya',
+    // Package castLabs Electron (with Widevine), not the stock one.
+    download: {
+      mirrorOptions: {
+        mirror:
+          'https://github.com/castlabs/electron-releases/releases/download/',
+      },
+    },
   },
   rebuildConfig: {},
+  hooks: {
+    // After packaging, so the signature covers the final Nya.exe.
+    postPackage: async (_config, { outputPaths, platform }) => {
+      if (platform !== 'win32' && platform !== 'darwin') return;
+      for (const dir of outputPaths) vmpSign(dir);
+    },
+  },
   makers: [
     new MakerSquirrel({
       setupIcon: 'assets/icon.ico',

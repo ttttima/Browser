@@ -50,6 +50,8 @@ above doesn't trigger this.
   resume, open and retry downloads
 - **Color modes**: dark, light and OLED (pure black), with any accent color
 - **Force dark mode**: makes every website dark, without flashing
+- **Protected video and music** (DRM) through Google's Widevine, which
+  downloads by itself on first launch
 - **Smooth dividers**: soft gradients between areas instead of hard lines
 - **Your own shortcuts**: bind any action to a key or mouse button, and add
   shortcuts that open your favorite sites
@@ -75,6 +77,16 @@ You need [Node.js](https://nodejs.org).
 npm install
 npm start          # run in development
 npm run make       # build the installer and zip into out/make
+```
+
+Nya uses [castLabs Electron](https://github.com/castlabs/electron-releases),
+which adds Widevine. Netflix and a few other services also need the app to be
+VMP-signed. The build does that automatically when castLabs' free signing
+tool is set up:
+
+```bash
+pip install castlabs-evs
+python -m castlabs_evs.account signup
 ```
 
 ## License

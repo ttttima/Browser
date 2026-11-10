@@ -2,6 +2,7 @@ import {
   app,
   BrowserWindow,
   Menu,
+  components,
   WebContentsView,
   ipcMain,
   nativeTheme,
@@ -79,6 +80,8 @@ const ALLOWED_PERMISSIONS = new Set([
   'fullscreen',
   'clipboard-sanitized-write',
   'pointerLock',
+  // Protected video and music (Netflix, Spotify...) through Widevine.
+  'mediaKeySystem',
 ]);
 
 interface Tab {
@@ -1212,6 +1215,15 @@ app.whenReady().then(() => {
   session.defaultSession.setPermissionCheckHandler((_contents, permission) =>
     ALLOWED_PERMISSIONS.has(permission),
   );
+
+  // Widevine (DRM) is downloaded into the user's profile on first launch and
+  // kept up to date by Chromium. The window doesn't wait for it: the new tab
+  // page needs no DRM and the module is ready within seconds.
+  components
+    .whenReady()
+    .catch((error: unknown) =>
+      console.error('Widevine is unavailable:', error),
+    );
 
   loadSettings();
   initHistory(() => sendToUi('browser:history-changed', null));
