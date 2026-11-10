@@ -90,7 +90,9 @@ try {
     @"
 # Removes Nya (installed by install.ps1). Your settings and history stay in
 # %APPDATA%\Nya - delete that folder too if you want them gone.
-Get-Process -Name 'Nya' -ErrorAction SilentlyContinue | Stop-Process -Force
+Get-Process -Name 'Nya' -ErrorAction SilentlyContinue |
+    Where-Object { `$_.Path -and `$_.Path.StartsWith('$InstallDir', 'OrdinalIgnoreCase') } |
+    Stop-Process -Force
 Start-Sleep -Milliseconds 500
 Remove-Item '$startMenu', '$desktop' -Force -ErrorAction SilentlyContinue
 Remove-Item 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\$AppName' -Recurse -Force -ErrorAction SilentlyContinue
