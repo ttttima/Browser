@@ -717,7 +717,12 @@ body.sidebar-collapsed #settings .label {
   padding: var(--space-3) 0;
 }
 
-.setting-row + .setting-row {
+.setting-row[hidden] {
+  display: none;
+}
+
+/* A hidden row (e.g. Default browser on macOS) adds no line. */
+.setting-row:not([hidden]) + .setting-row {
   border-top: 1px solid var(--divider);
 }
 
@@ -1157,7 +1162,7 @@ body.smooth-dividers .settings-content {
 
 /* Lines between rows: fade out at both ends instead of stopping sharply. */
 body.smooth-dividers .card-title,
-body.smooth-dividers .setting-row + .setting-row {
+body.smooth-dividers .setting-row:not([hidden]) + .setting-row {
   border-image: linear-gradient(
       to right,
       transparent,

@@ -96,6 +96,13 @@ Get-Process -Name 'Nya' -ErrorAction SilentlyContinue |
 Start-Sleep -Milliseconds 500
 Remove-Item '$startMenu', '$desktop' -Force -ErrorAction SilentlyContinue
 Remove-Item 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\$AppName' -Recurse -Force -ErrorAction SilentlyContinue
+# Browser registration (Default apps), only if it belongs to this copy.
+`$command = (Get-ItemProperty 'HKCU:\Software\Classes\NyaURL\shell\open\command' -ErrorAction SilentlyContinue).'(default)'
+if (`$command -and `$command.ToLower().Contains('$($InstallDir.ToLower())')) {
+    Remove-Item 'HKCU:\Software\Classes\NyaURL' -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item 'HKCU:\Software\Clients\StartMenuInternet\$AppName' -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-ItemProperty 'HKCU:\Software\RegisteredApplications' -Name '$AppName' -ErrorAction SilentlyContinue
+}
 Start-Process powershell -WindowStyle Hidden -ArgumentList '-NoProfile', '-Command', "Start-Sleep 2; Remove-Item -LiteralPath '$InstallDir' -Recurse -Force"
 "@ | Set-Content -Path $uninstaller -Encoding UTF8
 

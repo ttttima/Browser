@@ -8,6 +8,7 @@ import {
   keyCombo,
   type ActionId,
   type CustomBinding,
+  type DefaultBrowserState,
   type DownloadAction,
   type DownloadInfo,
   type HistoryEntry,
@@ -51,6 +52,8 @@ interface BrowserAPI {
   setSettingsOpen: (open: boolean) => void;
   updateSettings: (changes: Partial<Settings>) => void;
   clearBrowsingData: () => Promise<boolean>;
+  getDefaultBrowser: () => Promise<DefaultBrowserState>;
+  makeDefaultBrowser: () => void;
   onStateChanged: (callback: (state: BrowserState) => void) => void;
   onTabsChanged: (callback: (state: TabsState) => void) => void;
   onSettingsChanged: (callback: (settings: Settings) => void) => void;
@@ -183,9 +186,36 @@ for (const button of document.querySelectorAll<HTMLButtonElement>('.light')) {
   );
 }
 // Like macOS: grey lights while the window is in the background.
-window.browser.onWindowFocus((focused) =>
-  document.body.classList.toggle('window-inactive', !focused),
+window.browser.onWindowFocus((focused) => {
+  document.body.classList.toggle('window-inactive', !focused);
+  // Back from Windows Settings: show whether Nya became the default.
+  if (focused) void updateDefaultBrowser();
+});
+
+// ---------------------------------------------------------- default browser
+
+const defaultBrowserRow = $<HTMLDivElement>('#default-browser-row');
+const defaultBrowserText = $<HTMLElement>('#default-browser-text');
+const makeDefault = $<HTMLButtonElement>('#make-default');
+
+async function updateDefaultBrowser() {
+  let state: DefaultBrowserState;
+  try {
+    state = await window.browser.getDefaultBrowser();
+  } catch {
+    return;
+  }
+  defaultBrowserRow.hidden = !state.supported;
+  defaultBrowserText.textContent = state.isDefault
+    ? 'Nya opens links from other apps'
+    : 'Open links from other apps in Nya';
+  makeDefault.disabled = state.isDefault;
+  makeDefault.textContent = state.isDefault ? 'Default' : 'Make default';
+}
+makeDefault.addEventListener('click', () =>
+  window.browser.makeDefaultBrowser(),
 );
+void updateDefaultBrowser();
 
 // ---------------------------------------------------------------- tabs
 

@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type {
   BrowserState,
+  DefaultBrowserState,
   DownloadAction,
   DownloadInfo,
   HistoryEntry,
@@ -61,6 +62,9 @@ contextBridge.exposeInMainWorld('browser', {
     ipcRenderer.send('browser:update-settings', changes),
   clearBrowsingData: (): Promise<boolean> =>
     ipcRenderer.invoke('browser:clear-data'),
+  getDefaultBrowser: (): Promise<DefaultBrowserState> =>
+    ipcRenderer.invoke('browser:default-browser-get'),
+  makeDefaultBrowser: () => ipcRenderer.send('browser:default-browser-set'),
 
   onStateChanged: (callback: (state: BrowserState) => void) => {
     ipcRenderer.on('browser:state', (_event, state: BrowserState) =>

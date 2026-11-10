@@ -163,6 +163,12 @@ export type DownloadAction =
   | 'retry'
   | 'remove';
 
+/** Whether Nya can be, and is, the system's default browser. */
+export interface DefaultBrowserState {
+  supported: boolean;
+  isDefault: boolean;
+}
+
 /** Pages that open in the full-window panel next to the settings. */
 export type PanelPage =
   | 'appearance'

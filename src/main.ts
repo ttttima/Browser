@@ -16,6 +16,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import started from 'electron-squirrel-startup';
 import {
+  defaultBrowserSupported,
+  isDefaultBrowser,
+  openDefaultAppsSettings,
+  registerAsBrowser,
+  unregisterAsBrowser,
+} from './default-browser';
+import {
   clearDownloads,
   clearHistory,
   deleteHistoryEntry,
@@ -47,6 +54,7 @@ import {
   type ActionId,
   type Bindings,
   type CustomBinding,
+  type DefaultBrowserState,
   type DownloadAction,
   type PanelPage,
 } from './shared';
@@ -56,7 +64,15 @@ declare const MAIN_WINDOW_VITE_NAME: string;
 
 // Windows installer (Squirrel) launches the app several times during
 // install/uninstall to create shortcuts. Quit right away in that case.
+if (process.argv.includes('--squirrel-uninstall')) unregisterAsBrowser();
 if (started) app.quit();
+
+// One running Nya: links opened from other apps start a second copy, which
+// hands them to the first (see 'second-instance') and quits. Development
+// copies skip this so they can run next to the installed app.
+const isFirstInstance =
+  started || !app.isPackaged || app.requestSingleInstanceLock();
+if (!isFirstInstance) app.quit();
 
 // Electron's default user agent contains "Electron/x.y.z" and the app name.
 // Some sites (Google sign-in especially) block that, so present a plain
@@ -967,7 +983,30 @@ function handleShortcut(input: Input): boolean {
 
 // ---------------------------------------------------------------- window
 
-function createWindow() {
+/** Web links in a command line (Windows passes clicked links this way). */
+function linksFromArgs(argv: string[]): string[] {
+  return argv
+    .slice(1)
+    .filter(isWebUrl)
+    .map((arg) => toUrl(arg, false))
+    .filter((url): url is string => url !== null)
+    .slice(0, 20);
+}
+
+/** Opens links from another app in new tabs and brings Nya to the front. */
+function openLinks(urls: string[]) {
+  const win = window;
+  if (!win || win.isDestroyed()) {
+    createWindow(urls);
+    return;
+  }
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
+  for (const url of urls) createTab(url);
+}
+
+function createWindow(urls: string[] = []) {
   htmlFullScreen = false;
   settingsOpen = false;
   tabs = [];
@@ -1045,7 +1084,8 @@ function createWindow() {
     );
   }
 
-  createTab(settings.homePage || null);
+  if (urls.length === 0) createTab(settings.homePage || null);
+  for (const url of urls) createTab(url);
 }
 
 function setUpMenu() {
@@ -1193,6 +1233,16 @@ function setUpIpc() {
   ipcMain.on('browser:force-dark-get', (event) => {
     event.returnValue = settings.forceDark;
   });
+  ipcMain.handle(
+    'browser:default-browser-get',
+    async (event): Promise<DefaultBrowserState> => ({
+      supported: fromUi(event.sender) && defaultBrowserSupported(),
+      isDefault: fromUi(event.sender) && (await isDefaultBrowser()),
+    }),
+  );
+  ipcMain.on('browser:default-browser-set', (event) => {
+    if (fromUi(event.sender)) void openDefaultAppsSettings();
+  });
   ipcMain.handle('browser:clear-data', async (event) => {
     if (!fromUi(event.sender)) return false;
     await clearBrowsingData();
@@ -1203,10 +1253,12 @@ function setUpIpc() {
 app.whenReady().then(() => {
   // Started by the Windows installer only to create shortcuts: do nothing
   // else (electron-squirrel-startup already handled it and we are quitting).
-  if (started) {
+  if (started || !isFirstInstance) {
     app.quit();
     return;
   }
+  void registerAsBrowser();
+  app.on('second-instance', (_event, argv) => openLinks(linksFromArgs(argv)));
   session.defaultSession.setPermissionRequestHandler(
     (_contents, permission, callback) => {
       callback(ALLOWED_PERMISSIONS.has(permission));
@@ -1236,7 +1288,7 @@ app.whenReady().then(() => {
   // Pages change color as you scroll or switch dark mode: keep checking.
   setInterval(() => void samplePageEdges(), 1500);
   setUpMenu();
-  createWindow();
+  createWindow(linksFromArgs(process.argv));
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

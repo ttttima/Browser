@@ -21,12 +21,19 @@ function vmpSign(appDir: string) {
     console.warn('VMP signing skipped: castlabs-evs is not installed.');
     return;
   }
+  // No input: if no castLabs account is signed in, fail instead of waiting
+  // for someone to type one.
   const result = spawnSync(
     python,
     ['-m', 'castlabs_evs.vmp', 'sign-pkg', appDir],
-    { stdio: 'inherit' },
+    { stdio: ['ignore', 'inherit', 'inherit'] },
   );
-  if (result.status !== 0) throw new Error('VMP signing failed.');
+  if (result.status !== 0) {
+    console.warn(
+      'VMP signing failed, the build is unsigned. Sign in with ' +
+        '`python -m castlabs_evs.account signup` (or `reauth`) and build again.',
+    );
+  }
 }
 
 const config: ForgeConfig = {

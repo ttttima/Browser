@@ -71,6 +71,7 @@ Your settings, history and downloads list are kept: they live in
 - **Force dark mode**: makes every website dark, without flashing
 - **Protected video and music** (DRM) through Google's Widevine, which
   downloads by itself on first launch
+- **Can be your default browser**: Settings → Navigation → Make default
 - **Smooth dividers**: soft gradients between areas instead of hard lines
 - **Your own shortcuts**: bind any action to a key or mouse button, and add
   shortcuts that open your favorite sites
