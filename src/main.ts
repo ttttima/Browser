@@ -8,6 +8,7 @@ import {
   nativeTheme,
   session,
   shell,
+  systemPreferences,
   type Input,
   type NativeImage,
   type WebContents,
@@ -57,6 +58,9 @@ import {
   type DefaultBrowserState,
   type DownloadAction,
   type PanelPage,
+  type Rect,
+  type WindowAnimation,
+  WINDOW_ANIMATION_MS,
 } from './shared';
 
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string;
@@ -122,6 +126,8 @@ let nextTabId = 1;
 let closedTabUrls: string[] = [];
 let htmlFullScreen = false;
 let settingsOpen = false;
+/** Web pages are hidden while the window zooms in or out (see animations). */
+let windowAnimating = false;
 
 // ---------------------------------------------------------------- settings
 
@@ -199,6 +205,7 @@ function sanitizeSettings(value: Partial<Settings>): Settings {
       /^#[0-9a-f]{6}$/i.test(value.accentColor)
         ? value.accentColor.toLowerCase()
         : DEFAULT_SETTINGS.accentColor,
+    windowAnimations: value.windowAnimations !== false,
   };
 }
 
@@ -406,27 +413,36 @@ function updateWindowTitle() {
   else window.setTitle(tab ? `${tabTitle(tab)} - ${APP_NAME}` : APP_NAME);
 }
 
-/** Places the active tab's page next to the sidebar and under the toolbar. */
-function layout() {
-  if (!window || window.isDestroyed()) return;
-  const [width, height] = window.getContentSize();
+/** Where web pages go: next to the sidebar and under the toolbar. */
+function pageBounds(win: BrowserWindow): Rect {
+  const [width, height] = win.getContentSize();
   const left = htmlFullScreen
     ? 0
     : settings.sidebarCollapsed
       ? SIDEBAR_COLLAPSED_WIDTH
       : SIDEBAR_WIDTH;
   const top = htmlFullScreen ? 0 : TOOLBAR_HEIGHT;
-  const bounds = {
+  return {
     x: left,
     y: top,
     width: Math.max(0, width - left),
     height: Math.max(0, height - top),
   };
+}
+
+/** Places the active tab's page next to the sidebar and under the toolbar. */
+function layout() {
+  if (!window || window.isDestroyed()) return;
+  const bounds = pageBounds(window);
 
   for (const tab of tabs) {
     // The settings page covers the whole window and the new-tab search page
     // is drawn by our UI, so hide the web page in both cases.
-    const visible = tab.id === activeTabId && !settingsOpen && !tab.isNewTab;
+    const visible =
+      tab.id === activeTabId &&
+      !settingsOpen &&
+      !tab.isNewTab &&
+      !windowAnimating;
     tab.view.setVisible(visible);
     if (visible) tab.view.setBounds(bounds);
   }
@@ -1006,6 +1022,104 @@ function openLinks(urls: string[]) {
   for (const url of urls) createTab(url);
 }
 
+// ------------------------------------------------------ window animations
+//
+// Opening: the window fades in quickly while the UI zooms up from 92%.
+// Closing: the web page is swapped for a snapshot (native page views can't
+// be scaled by CSS), then everything shrinks to 92% right away while the
+// window stays visible and fades out towards the end. The zoom lives in
+// index.css (--duration-window, --ease-out); the fade is done here.
+
+const easeOut = (t: number) => 1 - (1 - t) ** 3;
+const easeIn = (t: number) => t ** 3;
+
+function animationsOn() {
+  return (
+    settings.windowAnimations &&
+    !systemPreferences.getAnimationSettings().prefersReducedMotion
+  );
+}
+
+/** Fades the whole window between two opacities. */
+function fadeWindow(
+  win: BrowserWindow,
+  from: number,
+  to: number,
+  ease: (t: number) => number,
+  duration = WINDOW_ANIMATION_MS,
+): Promise<void> {
+  return new Promise((resolve) => {
+    const start = performance.now();
+    const step = () => {
+      if (win.isDestroyed()) return resolve();
+      const t = Math.min(1, (performance.now() - start) / duration);
+      win.setOpacity(from + (to - from) * ease(t));
+      if (t < 1) setTimeout(step, 8);
+      else resolve();
+    };
+    step();
+  });
+}
+
+const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+function showWindowAnimated(win: BrowserWindow) {
+  if (win.isDestroyed() || win.isVisible()) return;
+  if (!animationsOn()) {
+    win.show();
+    return;
+  }
+  windowAnimating = true;
+  layout();
+  win.setOpacity(0);
+  win.show();
+  const animation: WindowAnimation = { kind: 'open' };
+  sendToUi('browser:window-animation', animation);
+  // Fade in during the first half so the zoom is seen, then let it settle.
+  void fadeWindow(win, 0, 1, easeOut, WINDOW_ANIMATION_MS / 2)
+    .then(() => wait(WINDOW_ANIMATION_MS / 2))
+    .then(() => {
+      windowAnimating = false;
+      layout();
+    });
+}
+
+/** Set by the UI once the page snapshot is on screen and the zoom started. */
+let closeAnimationReady: (() => void) | null = null;
+
+async function closeWindowAnimated(win: BrowserWindow) {
+  const tab = activeTab();
+  const page = !settingsOpen && tab && !tab.isNewTab ? pageOf(tab) : null;
+  let snapshot: string | null = null;
+  if (page) {
+    const image = await Promise.race([
+      page.capturePage().catch(() => null),
+      wait(200).then(() => null),
+    ]);
+    if (image && !image.isEmpty()) {
+      snapshot = `data:image/jpeg;base64,${image.toJPEG(90).toString('base64')}`;
+    }
+  }
+  if (win.isDestroyed()) return;
+
+  const ready = new Promise<void>((resolve) => {
+    closeAnimationReady = resolve;
+  });
+  const animation: WindowAnimation = {
+    kind: 'close',
+    snapshot,
+    bounds: pageBounds(win),
+  };
+  sendToUi('browser:window-animation', animation);
+  // Don't wait forever if the UI can't answer.
+  await Promise.race([ready, wait(300)]);
+  closeAnimationReady = null;
+
+  windowAnimating = true;
+  layout();
+  await fadeWindow(win, 1, 0, easeIn);
+}
+
 function createWindow(urls: string[] = []) {
   htmlFullScreen = false;
   settingsOpen = false;
@@ -1024,6 +1138,8 @@ function createWindow(urls: string[] = []) {
       ? { icon: path.join(app.getAppPath(), 'assets', 'icon.png') }
       : {}),
     backgroundColor: THEME_BACKGROUNDS[settings.theme],
+    // Shown once the UI has painted, with the opening animation.
+    show: false,
     autoHideMenuBar: true,
     // No system title bar: our own bars go to the top edge and draw their
     // own window buttons. macOS keeps its native traffic lights instead.
@@ -1038,6 +1154,24 @@ function createWindow(urls: string[] = []) {
     },
   });
   window = win;
+
+  win.once('ready-to-show', () => showWindowAnimated(win));
+  // Never stay invisible if the first paint is slow.
+  setTimeout(() => showWindowAnimated(win), 3000);
+
+  let closeAnimated = false;
+  let closing = false;
+  win.on('close', (event) => {
+    if (closeAnimated || !animationsOn()) return;
+    if (!win.isVisible() || win.isMinimized()) return;
+    event.preventDefault();
+    if (closing) return;
+    closing = true;
+    void closeWindowAnimated(win).finally(() => {
+      closeAnimated = true;
+      if (!win.isDestroyed()) win.close();
+    });
+  });
 
   win.on('resize', layout);
   // The UI page loses focus whenever you click into a website, so tell it
@@ -1240,6 +1374,9 @@ function setUpIpc() {
       isDefault: fromUi(event.sender) && (await isDefaultBrowser()),
     }),
   );
+  ipcMain.on('browser:window-animation-ready', (event) => {
+    if (fromUi(event.sender)) closeAnimationReady?.();
+  });
   ipcMain.on('browser:default-browser-set', (event) => {
     if (fromUi(event.sender)) void openDefaultAppsSettings();
   });

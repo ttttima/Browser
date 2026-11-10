@@ -21,6 +21,7 @@ import {
   type Theme,
   type TabInfo,
   type TabsState,
+  type WindowAnimation,
 } from './shared';
 
 interface BrowserAPI {
@@ -52,6 +53,8 @@ interface BrowserAPI {
   setSettingsOpen: (open: boolean) => void;
   updateSettings: (changes: Partial<Settings>) => void;
   clearBrowsingData: () => Promise<boolean>;
+  onWindowAnimation: (callback: (animation: WindowAnimation) => void) => void;
+  windowAnimationReady: () => void;
   getDefaultBrowser: () => Promise<DefaultBrowserState>;
   makeDefaultBrowser: () => void;
   onStateChanged: (callback: (state: BrowserState) => void) => void;
@@ -190,6 +193,49 @@ window.browser.onWindowFocus((focused) => {
   document.body.classList.toggle('window-inactive', !focused);
   // Back from Windows Settings: show whether Nya became the default.
   if (focused) void updateDefaultBrowser();
+});
+
+// -------------------------------------------------------- window animations
+
+// Main fades the window; the UI zooms in step (see index.css).
+window.browser.onWindowAnimation(async (animation) => {
+  const body = document.body;
+  if (animation.kind === 'open') {
+    body.classList.remove('window-closing');
+    body.classList.add('window-opening');
+    body.addEventListener(
+      'animationend',
+      () => body.classList.remove('window-opening'),
+      { once: true },
+    );
+    return;
+  }
+  // Closing: the web page is a native view CSS can't zoom, so put a picture
+  // of it in its place first. Main hides the real page once we're ready.
+  if (animation.snapshot) {
+    const image = document.createElement('img');
+    image.id = 'window-snapshot';
+    image.alt = '';
+    image.src = animation.snapshot;
+    const { x, y, width, height } = animation.bounds;
+    Object.assign(image.style, {
+      left: `${x}px`,
+      top: `${y}px`,
+      width: `${width}px`,
+      height: `${height}px`,
+    });
+    try {
+      await image.decode();
+    } catch {
+      // Zoom without the picture.
+    }
+    body.append(image);
+  }
+  body.classList.remove('window-opening');
+  body.classList.add('window-closing');
+  requestAnimationFrame(() =>
+    requestAnimationFrame(() => window.browser.windowAnimationReady()),
+  );
 });
 
 // ---------------------------------------------------------- default browser
@@ -433,6 +479,7 @@ const scrollTabs = $<HTMLInputElement>('#setting-scroll-tabs');
 const askDownload = $<HTMLInputElement>('#setting-ask-download');
 const smoothDividers = $<HTMLInputElement>('#setting-smooth-dividers');
 const smoothDividersRow = $<HTMLElement>('#smooth-dividers-row');
+const windowAnimations = $<HTMLInputElement>('#setting-window-animations');
 
 /** Applies both divider settings to the page. */
 function applyDividers(show: boolean, smooth: boolean) {
@@ -533,6 +580,9 @@ forceDark.addEventListener('change', () =>
 );
 askDownload.addEventListener('change', () =>
   window.browser.updateSettings({ askDownloadLocation: askDownload.checked }),
+);
+windowAnimations.addEventListener('change', () =>
+  window.browser.updateSettings({ windowAnimations: windowAnimations.checked }),
 );
 scrollTabs.addEventListener('change', () => {
   scrollTabsEnabled = scrollTabs.checked;
@@ -1244,6 +1294,7 @@ window.browser.onSettingsChanged((settings) => {
   forceDark.checked = settings.forceDark;
   scrollTabs.checked = settings.scrollTabs;
   scrollTabsEnabled = settings.scrollTabs;
+  windowAnimations.checked = settings.windowAnimations;
   askDownload.checked = settings.askDownloadLocation;
   currentBindings = settings.bindings;
   customBindings = settings.customBindings;
