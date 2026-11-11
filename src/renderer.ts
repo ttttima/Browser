@@ -1,5 +1,6 @@
 import './index.css';
 import { pageShown } from './ui-pages';
+import { cancelColorPanel, openColorPanel } from './ui-color-panel';
 import './ui-sidebar';
 import { icon } from './ui-common';
 import {
@@ -505,6 +506,7 @@ for (const [value, engine] of Object.entries(SEARCH_ENGINES)) {
 }
 
 function setSettingsVisible(open: boolean) {
+  if (!open) cancelColorPanel();
   settingsPage.hidden = !open;
   document.body.classList.toggle('settings-open', open);
   updatePanelButtons();
@@ -524,6 +526,7 @@ let currentPage: PanelPage = 'appearance';
 let lastSettingsPage: PanelPage = 'appearance';
 
 function showPage(page: PanelPage) {
+  cancelColorPanel();
   currentPage = page;
   if (SETTINGS_PAGES.includes(page)) lastSettingsPage = page;
   for (const button of categories) {
@@ -635,8 +638,7 @@ clearData.addEventListener('click', async () => {
 // ---- accent color
 
 const accentSwatches = $<HTMLDivElement>('#accent-swatches');
-const accentCustom = $<HTMLLabelElement>('.accent-custom');
-const accentCustomInput = $<HTMLInputElement>('#accent-custom-input');
+const accentCustom = $<HTMLButtonElement>('#accent-custom');
 
 /**
  * A color token as #rrggbb, or null. The production build shortens colors
@@ -681,7 +683,6 @@ function applyAccent(hex: string) {
   colors.accentColor = hex;
   applyBackground();
 
-  accentCustomInput.value = hex;
   const isPreset = ACCENT_PRESETS.some((preset) => preset.color === hex);
   accentCustom.classList.toggle('selected', !isPreset);
   for (const swatch of accentSwatches.querySelectorAll<HTMLElement>(
@@ -707,14 +708,17 @@ for (const preset of ACCENT_PRESETS) {
   accentSwatches.append(swatch);
 }
 
-// "input" fires while dragging in the color window: preview live.
-accentCustomInput.addEventListener('input', () =>
-  applyAccent(accentCustomInput.value),
-);
-// "change" fires when the color window closes: save it.
-accentCustomInput.addEventListener('change', () =>
-  chooseAccent(accentCustomInput.value),
-);
+// Custom: preview in the color panel, keep it only on Apply.
+accentCustom.addEventListener('click', () => {
+  const saved = colors.accentColor;
+  openColorPanel(accentCustom, {
+    color: saved,
+    label: 'Custom accent color',
+    onPreview: applyAccent,
+    onApply: chooseAccent,
+    onCancel: () => applyAccent(saved),
+  });
+});
 
 // ---- background tint
 
@@ -740,8 +744,7 @@ const TINTED_TOKENS = [
 const tintRow = $<HTMLDivElement>('#tint-row');
 const tintNote = $<HTMLElement>('#tint-note');
 const tintSwatches = $<HTMLDivElement>('#tint-swatches');
-const tintCustom = $<HTMLLabelElement>('#tint-custom');
-const tintCustomInput = $<HTMLInputElement>('#tint-custom-input');
+const tintCustom = $<HTMLButtonElement>('#tint-custom');
 
 /**
  * Blends the tint into the theme's own colors (read from the stylesheet,
@@ -765,9 +768,7 @@ function applyBackground() {
   const oled = colors.theme === 'oled';
   tintRow.classList.toggle('disabled', oled);
   tintNote.textContent = oled ? 'Off in OLED dark' : 'Dark and light mode';
-  for (const control of tintRow.querySelectorAll<
-    HTMLButtonElement | HTMLInputElement
-  >('button, input')) {
+  for (const control of tintRow.querySelectorAll<HTMLButtonElement>('button')) {
     control.disabled = oled;
   }
   const choice = colors.backgroundTint;
@@ -779,7 +780,6 @@ function applyBackground() {
   tintCustom.classList.toggle('selected', !isPreset);
   if (!isPreset) {
     tintCustom.style.setProperty('--tint-custom', choice);
-    tintCustomInput.value = choice;
   }
   for (const swatch of tintSwatches.querySelectorAll<HTMLElement>(
     '.accent-swatch',
@@ -813,13 +813,21 @@ for (const option of [
   tintSwatches.append(swatch);
 }
 
-tintCustomInput.addEventListener('input', () => {
-  colors.backgroundTint = tintCustomInput.value;
-  applyBackground();
+tintCustom.addEventListener('click', () => {
+  const saved = colors.backgroundTint;
+  const preview = (value: string) => {
+    colors.backgroundTint = value;
+    applyBackground();
+  };
+  openColorPanel(tintCustom, {
+    // Start from the tint in use, or the accent when there is none.
+    color: activeTint(colors) ?? colors.accentColor,
+    label: 'Custom background tint',
+    onPreview: preview,
+    onApply: chooseTint,
+    onCancel: () => preview(saved),
+  });
 });
-tintCustomInput.addEventListener('change', () =>
-  chooseTint(tintCustomInput.value),
-);
 
 // ---- dithering
 

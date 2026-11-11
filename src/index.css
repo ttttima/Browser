@@ -1056,14 +1056,9 @@ button.danger:hover:not(:disabled) {
   color: var(--text);
 }
 
-/* Invisible native input on top: clicking opens the system color window. */
-.accent-custom input {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  opacity: 0;
-  cursor: pointer;
+.accent-custom.panel-open {
+  border-color: var(--accent);
+  color: var(--text);
 }
 
 .accent-custom-preview {
@@ -1112,6 +1107,106 @@ button.danger:hover:not(:disabled) {
 
 #tint-custom.selected .accent-custom-preview {
   background: var(--tint-custom);
+}
+
+/* Color panel under a Custom button: pick, preview live, then Apply.
+   12px card with 8px padding, so shapes inside use 12 - 8 = 4. */
+.color-panel {
+  position: fixed;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: calc(var(--sidebar-full) + var(--space-4));
+  padding: var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+
+/* Saturation left to right, brightness top to bottom, for the hue. */
+.color-area {
+  position: relative;
+  height: calc(var(--control) * 4);
+  border-radius: var(--radius-sm);
+  background:
+    linear-gradient(to top, #000000, transparent),
+    linear-gradient(to right, #ffffff, var(--hue));
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.color-thumb {
+  position: absolute;
+  width: var(--icon);
+  height: var(--icon);
+  border: 2px solid #ffffff;
+  border-radius: var(--radius-full);
+  background: var(--picked);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.color-hue {
+  width: 100%;
+  height: var(--space-3);
+  margin: var(--space-1) 0;
+  border-radius: var(--radius-full);
+  background: linear-gradient(
+    to right,
+    #ff0000,
+    #ffff00,
+    #00ff00,
+    #00ffff,
+    #0000ff,
+    #ff00ff,
+    #ff0000
+  );
+  cursor: pointer;
+  appearance: none;
+}
+
+.color-hue::-webkit-slider-thumb {
+  width: var(--icon);
+  height: var(--icon);
+  border: 2px solid #ffffff;
+  border-radius: var(--radius-full);
+  background: var(--hue);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4);
+  appearance: none;
+}
+
+.color-field {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.color-swatch {
+  width: var(--control);
+  height: var(--control);
+  flex-shrink: 0;
+  border: 1px solid var(--input-border);
+  border-radius: var(--radius);
+  background: var(--picked);
+}
+
+.color-field input {
+  flex: 1;
+  min-width: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.color-field input.invalid {
+  border-color: var(--danger);
+}
+
+.color-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
 }
 
 /* ============================================================ smooth dividers */
