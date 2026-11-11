@@ -13,14 +13,14 @@ import type {
 const MAX_HISTORY = 10_000;
 const MAX_DOWNLOADS = 500;
 
-const newId = () =>
+export const newId = () =>
   Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 
 // ---------------------------------------------------------------- storage
 
 const dataFile = (name: string) => path.join(app.getPath('userData'), name);
 
-function readJson(name: string): unknown {
+export function readJson(name: string): unknown {
   try {
     const text = fs.readFileSync(dataFile(name), 'utf-8').replace(/^﻿/, '');
     return JSON.parse(text);
@@ -32,7 +32,7 @@ function readJson(name: string): unknown {
 const pendingWrites = new Map<string, () => unknown>();
 let writeTimer: ReturnType<typeof setTimeout> | null = null;
 
-function flushWrites() {
+export function flushWrites() {
   if (writeTimer) clearTimeout(writeTimer);
   writeTimer = null;
   for (const [name, getData] of pendingWrites) {
@@ -46,14 +46,14 @@ function flushWrites() {
 }
 
 /** Saves a second after the last change, and always before quitting. */
-function saveSoon(name: string, getData: () => unknown) {
+export function saveSoon(name: string, getData: () => unknown) {
   pendingWrites.set(name, getData);
   writeTimer ??= setTimeout(flushWrites, 1000);
 }
 
 app.on('will-quit', flushWrites);
 
-const isText = (value: unknown, max = 4096): value is string =>
+export const isText = (value: unknown, max = 4096): value is string =>
   typeof value === 'string' && value.length <= max;
 
 // ---------------------------------------------------------------- history
@@ -115,6 +115,39 @@ export function updateVisitTitle(id: string, title: string) {
 }
 
 export const getHistory = () => history;
+
+/**
+ * Adds visits imported from another browser, skipping ones already here,
+ * and keeps the list newest first. Returns how many were added.
+ */
+export function importHistory(
+  entries: { url: string; title: string; time: number }[],
+) {
+  const known = new Set(history.map((e) => `${e.url} ${e.time}`));
+  let added = 0;
+  for (const entry of entries) {
+    if (!/^https?:\/\//i.test(entry.url) || entry.url.length > 4096) continue;
+    if (known.has(`${entry.url} ${entry.time}`)) continue;
+    history.push({
+      id: newId(),
+      url: entry.url,
+      title: entry.title.slice(0, 1024),
+      time: entry.time,
+    });
+    added++;
+  }
+  history.sort((a, b) => b.time - a.time);
+  if (history.length > MAX_HISTORY) history.length = MAX_HISTORY;
+  onHistoryChange();
+  return added;
+}
+
+/** Forgets every visit to one address (Shift+Delete in the address bar). */
+export function deleteHistoryUrl(url: string) {
+  const before = history.length;
+  history = history.filter((e) => e.url !== url);
+  if (history.length !== before) onHistoryChange();
+}
 
 export function deleteHistoryEntry(id: string) {
   history = history.filter((e) => e.id !== id);

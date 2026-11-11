@@ -3,6 +3,9 @@ import {
   BrowserWindow,
   Menu,
   components,
+  desktopCapturer,
+  dialog,
+  webContents as allWebContents,
   WebContentsView,
   ipcMain,
   nativeTheme,
@@ -11,10 +14,56 @@ import {
   systemPreferences,
   type Input,
   type NativeImage,
+  type Session,
   type WebContents,
 } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { attachAdblock, initAdblock } from './adblock';
+import {
+  getBookmarks,
+  initBookmarks,
+  isBookmarked,
+  removeBookmark,
+  renameBookmark,
+  toggleBookmark,
+} from './bookmarks';
+import { showEditMenu, showPageMenu } from './context-menu';
+import { importFrom, importSources } from './importer';
+import {
+  canStorePasswords,
+  deleteLogin,
+  importPasswordsCsv,
+  initPasswords,
+  isSaved,
+  listLogins,
+  loginsFor,
+  revealPassword,
+  saveLogin,
+} from './passwords';
+import { loadSession, saveSession } from './session-store';
+import {
+  adsAllowed,
+  getPermission,
+  getSites,
+  getZoom,
+  initSites,
+  originOf,
+  passwordsNeverSaved,
+  resetSite,
+  setAdsAllowed,
+  setNeverSavePasswords,
+  setPermission,
+  setZoom,
+} from './site-settings';
+import { localSuggestions, remoteSuggestions } from './suggest';
+import {
+  checkForUpdate,
+  installUpdate,
+  updatesSupported,
+  type ReadyUpdate,
+} from './updater';
 import started from 'electron-squirrel-startup';
 import {
   defaultBrowserSupported,
@@ -27,6 +76,7 @@ import {
   clearDownloads,
   clearHistory,
   deleteHistoryEntry,
+  deleteHistoryUrl,
   downloadAction,
   getDownloads,
   getHistory,
@@ -49,6 +99,7 @@ import {
   type TabInfo,
   type TabsState,
   ACTIONS,
+  BINDINGS_VERSION,
   MOUSE_BUTTONS,
   defaultBindings,
   keyCombo,
@@ -59,9 +110,14 @@ import {
   type DownloadAction,
   type PanelPage,
   type Rect,
+  type Notice,
+  type PageSecurity,
+  type PermissionDecision,
+  PANEL_PAGES,
 } from './shared';
 import {
   destroyOverlay,
+  overlaySourceId,
   playWindowAnimation,
   prepareOverlay,
   type Layer,
@@ -98,15 +154,21 @@ const SIDEBAR_COLLAPSED_WIDTH = 48;
 const APP_NAME = 'Nya';
 const MAX_CLOSED_TABS = 25;
 
-// Permissions websites get without asking. Everything else (camera, mic,
-// location, notifications, USB...) is denied until we build a prompt for it.
-const ALLOWED_PERMISSIONS = new Set([
+// Permissions websites get without asking. Others are asked about in the
+// bar under the toolbar (see setUpSession), and the rest are denied.
+const AUTO_ALLOWED = new Set([
   'fullscreen',
   'clipboard-sanitized-write',
   'pointerLock',
+  'keyboardLock',
+  'speaker-selection',
   // Protected video and music (Netflix, Spotify...) through Widevine.
   'mediaKeySystem',
 ]);
+
+/** Height of the question bar under the toolbar (= --control-lg). */
+const NOTICE_HEIGHT = 48;
+const PRIVATE_PARTITION = 'nya-private';
 
 interface Tab {
   id: number;
@@ -121,6 +183,12 @@ interface Tab {
   focusAddressOnLoad: boolean;
   /** History entry of the page shown now (to add its title later). */
   historyId: string | null;
+  pinned: boolean;
+  audible: boolean;
+  /** Private tab: separate in-memory session, nothing is remembered. */
+  isPrivate: boolean;
+  /** Restored tab that loads only when first opened. */
+  lazyUrl: string | null;
 }
 
 let window: BrowserWindow | null = null;
@@ -132,6 +200,15 @@ let htmlFullScreen = false;
 let settingsOpen = false;
 /** Web pages are hidden while the window zooms in or out (see animations). */
 let windowAnimating = false;
+/** The address bar dropdown covers the page (a picture is shown instead). */
+let suggestOpen = false;
+/** The next download asks where to save ("Save image as..."). */
+let askNextDownload = false;
+/** Stop saving the session once the window is closing. */
+let sessionFrozen = false;
+/** Decisions made in private tabs, forgotten when the last one closes. */
+const privateDecisions = new Map<string, PermissionDecision>();
+let readyUpdate: ReadyUpdate | null = null;
 
 // ---------------------------------------------------------------- settings
 
@@ -167,9 +244,31 @@ function loadSettings() {
     const text = fs.readFileSync(settingsFile(), 'utf-8').replace(/^﻿/, '');
     const saved = JSON.parse(text);
     settings = sanitizeSettings({ ...DEFAULT_SETTINGS, ...saved });
+    if (!(Number(saved.bindingsVersion) >= BINDINGS_VERSION)) {
+      addNewDefaultBindings();
+      saveSettings();
+    }
   } catch {
     settings = { ...DEFAULT_SETTINGS };
   }
+}
+
+/**
+ * Settings saved by an older Nya: give every action the user never bound
+ * its new default shortcut, unless that key is already used for something.
+ */
+function addNewDefaultBindings() {
+  const used = new Set([
+    ...Object.values(settings.bindings),
+    ...settings.customBindings.map((custom) => custom.binding),
+  ]);
+  for (const action of ACTIONS) {
+    if (settings.bindings[action.id] || !action.binding) continue;
+    if (used.has(action.binding)) continue;
+    settings.bindings[action.id] = action.binding;
+    used.add(action.binding);
+  }
+  settings.bindingsVersion = BINDINGS_VERSION;
 }
 
 function saveSettings() {
@@ -210,6 +309,15 @@ function sanitizeSettings(value: Partial<Settings>): Settings {
         ? value.accentColor.toLowerCase()
         : DEFAULT_SETTINGS.accentColor,
     windowAnimations: value.windowAnimations !== false,
+    bindingsVersion: Number.isInteger(value.bindingsVersion)
+      ? Number(value.bindingsVersion)
+      : 1,
+    startup: value.startup === 'newTab' ? 'newTab' : 'restore',
+    searchSuggestions: value.searchSuggestions === true,
+    blockAds: value.blockAds !== false,
+    offerPasswords: value.offerPasswords !== false,
+    clearOnExit: value.clearOnExit === true,
+    autoUpdate: value.autoUpdate !== false,
   };
 }
 
@@ -279,6 +387,17 @@ function isWebUrl(url: string) {
 function toUrl(input: string, allowSearch = true): string | null {
   const value = input.trim();
   if (!value) return null;
+
+  // Local files: "C:\folder\page.html" or "file:///C:/...".
+  if (/^[a-z]:[\\/]/i.test(value)) return pathToFileURL(value).href;
+  if (/^file:\/\//i.test(value)) {
+    try {
+      return new URL(value).href;
+    } catch {
+      return null;
+    }
+  }
+  if (/^view-source:https?:\/\//i.test(value)) return value;
 
   let candidate: string;
   if (isWebUrl(value)) {
@@ -362,12 +481,13 @@ function activeContents(): WebContents | null {
 /** The URL to show for a tab (the failed URL instead of the error page). */
 function shownUrl(tab: Tab) {
   if (tab.isNewTab) return '';
+  if (tab.lazyUrl) return tab.lazyUrl;
   const current = pageOf(tab)?.getURL() ?? '';
   return current.startsWith('data:') && tab.failedUrl ? tab.failedUrl : current;
 }
 
 function tabTitle(tab: Tab) {
-  if (tab.isNewTab) return 'New tab';
+  if (tab.isNewTab) return tab.isPrivate ? 'Private tab' : 'New tab';
   if (tab.title) return tab.title;
   const url = shownUrl(tab);
   try {
@@ -387,6 +507,10 @@ function sendTabs() {
         favicon: tab.favicon,
         loading: pageOf(tab)?.isLoading() ?? false,
         isNewTab: tab.isNewTab,
+        pinned: tab.pinned,
+        audible: tab.audible,
+        muted: pageOf(tab)?.isAudioMuted() ?? false,
+        isPrivate: tab.isPrivate,
       }),
     ),
     activeTabId,
@@ -395,6 +519,31 @@ function sendTabs() {
     settingsOpen,
   };
   sendToUi('browser:tabs', payload);
+  persistSession();
+}
+
+/** Remembers the open tabs (not private ones) for the next start. */
+function persistSession() {
+  if (sessionFrozen) return;
+  const saved = tabs.filter((tab) => !tab.isPrivate && !tab.isNewTab);
+  const active = saved.findIndex((tab) => tab.id === activeTabId);
+  saveSession({
+    tabs: saved
+      .map((tab) => ({
+        url: shownUrl(tab),
+        title: tabTitle(tab),
+        pinned: tab.pinned,
+      }))
+      .filter((tab) => /^(https?|file):/i.test(tab.url)),
+    active: Math.max(0, active),
+  });
+}
+
+function securityOf(url: string): PageSecurity {
+  if (/^https:/i.test(url)) return 'secure';
+  if (/^http:/i.test(url)) return 'insecure';
+  if (/^file:/i.test(url)) return 'local';
+  return 'none';
 }
 
 function sendState() {
@@ -406,6 +555,10 @@ function sendState() {
     canGoBack: contents.navigationHistory.canGoBack(),
     canGoForward: contents.navigationHistory.canGoForward(),
     loading: contents.isLoading(),
+    zoom: Math.round(contents.getZoomFactor() * 100),
+    security: securityOf(shownUrl(tab)),
+    bookmarked: isBookmarked(shownUrl(tab)),
+    isPrivate: tab.isPrivate,
   };
   sendToUi('browser:state', state);
 }
@@ -425,7 +578,9 @@ function pageBounds(win: BrowserWindow): Rect {
     : settings.sidebarCollapsed
       ? SIDEBAR_COLLAPSED_WIDTH
       : SIDEBAR_WIDTH;
-  const top = htmlFullScreen ? 0 : TOOLBAR_HEIGHT;
+  const notice =
+    !htmlFullScreen && !settingsOpen && visibleNotice() ? NOTICE_HEIGHT : 0;
+  const top = htmlFullScreen ? 0 : TOOLBAR_HEIGHT + notice;
   return {
     x: left,
     y: top,
@@ -446,7 +601,9 @@ function layout() {
       tab.id === activeTabId &&
       !settingsOpen &&
       !tab.isNewTab &&
-      !windowAnimating;
+      !tab.lazyUrl &&
+      !windowAnimating &&
+      !suggestOpen;
     tab.view.setVisible(visible);
     if (visible) tab.view.setBounds(bounds);
   }
@@ -522,8 +679,17 @@ function samplePageEdgesSoon() {
 function activateTab(id: number) {
   const tab = findTab(id);
   if (!tab) return;
+  if (activeTabId !== id) sendToUi('nya:find-close', null);
   activeTabId = id;
   settingsOpen = false;
+  if (tab.lazyUrl) {
+    const url = tab.lazyUrl;
+    tab.lazyUrl = null;
+    pageOf(tab)
+      ?.loadURL(url)
+      .catch(() => {});
+  }
+  sendNotice();
   layout();
   sendTabs();
   sendState();
@@ -560,19 +726,34 @@ async function clearBrowsingData() {
 /** Opens a tab. With no URL it shows the clean search page. */
 function createTab(
   url: string | null,
-  options: { activate?: boolean; nextToActive?: boolean } = {},
+  options: {
+    activate?: boolean;
+    nextToActive?: boolean;
+    isPrivate?: boolean;
+    pinned?: boolean;
+    /** Restored tab: show it, but load only when it's opened. */
+    lazyTitle?: string;
+  } = {},
 ) {
   const win = window;
   if (!win || win.isDestroyed()) return null;
   const { activate = true, nextToActive = false } = options;
+  const isPrivate = options.isPrivate === true;
+  if (isPrivate) setUpPrivateSession();
 
   const view = new WebContentsView({
     webPreferences: {
-      // Only hosts the dark mode forcer; exposes nothing to websites.
+      // Hosts the dark mode forcer and the password helper; exposes
+      // nothing to websites.
       preload: path.join(__dirname, 'tab-preload.cjs'),
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: true,
+      // Built-in PDF viewer.
+      plugins: true,
+      spellcheck: true,
+      // Private tabs live in a session that is only kept in memory.
+      ...(isPrivate ? { partition: PRIVATE_PARTITION } : {}),
     },
   });
   view.setBackgroundColor(tabBackground());
@@ -587,12 +768,20 @@ function createTab(
     isNewTab: !url,
     focusAddressOnLoad: false,
     historyId: null,
+    pinned: options.pinned === true,
+    audible: false,
+    isPrivate,
+    lazyUrl: options.lazyTitle !== undefined ? url : null,
   };
+  if (options.lazyTitle) tab.title = options.lazyTitle;
 
   const activeIndex = tabs.findIndex((t) => t.id === activeTabId);
-  if (nextToActive && activeIndex !== -1) {
+  const pinnedCount = tabs.filter((t) => t.pinned).length;
+  if (tab.pinned) {
+    tabs.splice(pinnedCount, 0, tab);
+  } else if (nextToActive && activeIndex !== -1) {
     // Like Chrome: links open right below the tab they came from.
-    tabs.splice(activeIndex + 1, 0, tab);
+    tabs.splice(Math.max(pinnedCount, activeIndex + 1), 0, tab);
   } else {
     tabs.push(tab);
   }
@@ -600,7 +789,7 @@ function createTab(
   win.contentView.addChildView(view);
   wireTab(tab);
 
-  if (url) {
+  if (url && !tab.lazyUrl) {
     view.webContents.loadURL(url).catch(() => {
       // Load errors are shown by the did-fail-load handler.
     });
@@ -615,9 +804,10 @@ function closeTab(id: number) {
   const index = tabs.findIndex((tab) => tab.id === id);
   if (index === -1) return;
   const [tab] = tabs.splice(index, 1);
+  dropNotices(tab.id);
 
   const url = shownUrl(tab);
-  if (isWebUrl(url)) {
+  if (isWebUrl(url) && !tab.isPrivate) {
     closedTabUrls.push(url);
     closedTabUrls = closedTabUrls.slice(-MAX_CLOSED_TABS);
   }
@@ -626,6 +816,7 @@ function closeTab(id: number) {
     window.contentView.removeChildView(tab.view);
   }
   pageOf(tab)?.close();
+  if (tab.isPrivate && !tabs.some((t) => t.isPrivate)) clearPrivateSession();
 
   if (tabs.length === 0) {
     // Closing the last tab closes the window, like other browsers.
@@ -647,12 +838,45 @@ function moveTab(id: number, toIndex: number) {
   if (from === -1) return;
   const [tab] = tabs.splice(from, 1);
   // toIndex counts the moved tab in its old place, so adjust when moving down.
+  const pinnedCount = tabs.filter((t) => t.pinned).length;
+  // Pinned tabs stay above the others.
+  const [min, max] = tab.pinned ? [0, pinnedCount] : [pinnedCount, tabs.length];
   const target = Math.max(
-    0,
-    Math.min(tabs.length, from < toIndex ? toIndex - 1 : toIndex),
+    min,
+    Math.min(max, from < toIndex ? toIndex - 1 : toIndex),
   );
   tabs.splice(target, 0, tab);
   sendTabs();
+}
+
+function togglePin(id: number) {
+  const tab = findTab(id);
+  if (!tab) return;
+  tabs.splice(tabs.indexOf(tab), 1);
+  tab.pinned = !tab.pinned;
+  // Pinning puts it last among pinned tabs; unpinning, first of the rest.
+  const pinnedCount = tabs.filter((t) => t.pinned).length;
+  tabs.splice(pinnedCount, 0, tab);
+  sendTabs();
+}
+
+function toggleMute(id: number) {
+  const contents = pageOf(findTab(id));
+  if (!contents) return;
+  contents.setAudioMuted(!contents.isAudioMuted());
+  sendTabs();
+}
+
+function duplicateTab(id: number) {
+  const tab = findTab(id);
+  const url = tab ? shownUrl(tab) : '';
+  if (!tab || !url) return;
+  createTab(url, { nextToActive: true, isPrivate: tab.isPrivate });
+}
+
+function newPrivateTab() {
+  createTab(null, { isPrivate: true });
+  focusAddressBar();
 }
 
 function cycleTab(step: number) {
@@ -720,10 +944,61 @@ function wireTab(tab: Tab) {
   contents.on('did-navigate', changed);
   contents.on('did-navigate-in-page', changed);
 
+  // Speaker icon on tabs that play sound.
+  contents.on('audio-state-changed', (event) => {
+    tab.audible = event.audible;
+    sendTabs();
+  });
+
+  contents.on('found-in-page', (_event, result) => {
+    if (!isActive()) return;
+    sendToUi('nya:find-result', {
+      active: result.activeMatchOrdinal,
+      total: result.matches,
+    });
+  });
+
+  contents.on('context-menu', (_event, params) => {
+    if (!window || window.isDestroyed()) return;
+    const url = shownUrl(tab);
+    showPageMenu(window, contents, params, {
+      openTab: (link, options = {}) =>
+        createTab(link, {
+          nextToActive: true,
+          activate: !options.background,
+          isPrivate: options.private || tab.isPrivate,
+        }),
+      saveAs: (link) => {
+        askNextDownload = true;
+        contents.downloadURL(link);
+      },
+      search: (text) =>
+        createTab(searchUrl(text), {
+          nextToActive: true,
+          isPrivate: tab.isPrivate,
+        }),
+      searchEngineName: SEARCH_ENGINES[settings.searchEngine].name,
+      print: () => printPage(contents),
+      savePage: () => void savePageAs(contents),
+      viewSource: () => viewSource(tab),
+      toggleBookmark: () => toggleBookmarkFor(tab),
+      isBookmarked: isBookmarked(url),
+      isPrivate: tab.isPrivate,
+    });
+  });
+
+  // Ctrl + mouse wheel.
+  contents.on('zoom-changed', (_event, direction) =>
+    changeZoomFor(tab, direction === 'in' ? 0.5 : -0.5),
+  );
+
+  // Each site opens at the zoom it had last time.
+  contents.on('did-navigate', (_event, url) => applySiteZoom(tab, url));
+
   // History: every page you go to, including in-page navigation on sites
   // like YouTube that change the address without reloading.
   const remember = (url: string) => {
-    if (!isWebUrl(url)) return;
+    if (!isWebUrl(url) || tab.isPrivate) return;
     tab.historyId = recordVisit(url, contents.getTitle());
   };
   contents.on('did-navigate', (_event, url) => remember(url));
@@ -744,6 +1019,7 @@ function wireTab(tab: Tab) {
 
   contents.on('did-start-navigation', (details) => {
     if (!details.isMainFrame || details.isSameDocument) return;
+    dropNotices(tab.id, true);
     if (!details.url.startsWith('data:')) tab.failedUrl = null;
     if (tab.isNewTab) {
       // First website in this tab: swap the search page for the web page.
@@ -793,7 +1069,10 @@ function wireTab(tab: Tab) {
   });
 
   contents.setWindowOpenHandler(({ url, disposition }) => {
-    if (!isWebUrl(url)) return { action: 'deny' };
+    if (!isWebUrl(url)) {
+      openOutsideLink(tab, url);
+      return { action: 'deny' };
+    }
 
     // Real popups (window.open with a size), e.g. OAuth sign-in windows,
     // need to stay connected to the page that opened them.
@@ -819,6 +1098,7 @@ function wireTab(tab: Tab) {
     createTab(url, {
       activate: disposition !== 'background-tab',
       nextToActive: true,
+      isPrivate: tab.isPrivate,
     });
     return { action: 'deny' };
   });
@@ -826,9 +1106,10 @@ function wireTab(tab: Tab) {
 
   contents.on('will-navigate', (event, url) => {
     if (isWebUrl(url)) return;
+    // Local pages may link to other local files.
+    if (/^file:/i.test(url) && /^file:/i.test(contents.getURL())) return;
     event.preventDefault();
-    // Let the OS handle email/phone links.
-    if (/^(mailto|tel):/i.test(url)) shell.openExternal(url).catch(() => {});
+    openOutsideLink(tab, url);
   });
 
   // Video/YouTube fullscreen: hide the sidebar and toolbar.
@@ -849,6 +1130,50 @@ function wireTab(tab: Tab) {
   contents.on('destroyed', () => {
     if (findTab(tab.id)) closeTab(tab.id);
   });
+}
+
+/**
+ * Links for other apps: email and phone links open right away; anything
+ * else (spotify:, zoommtg:, ...) asks first.
+ */
+function openOutsideLink(tab: Tab, url: string) {
+  if (/^(mailto|tel):/i.test(url)) {
+    shell.openExternal(url).catch(() => {});
+    return;
+  }
+  const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(url)?.[1]?.toLowerCase();
+  const ignored = [
+    'javascript',
+    'data',
+    'about',
+    'blob',
+    'file',
+    'chrome',
+    'devtools',
+    'view-source',
+  ];
+  if (!scheme || ignored.includes(scheme)) return;
+  const site = hostLabel(originOf(shownUrl(tab))) || 'This page';
+  void ask({
+    kind: 'external',
+    tabId: tab.id,
+    text: `${site} wants to open a “${scheme}” link in another app`,
+    actions: [
+      { id: 'open', label: 'Open app' },
+      { id: 'cancel', label: 'Cancel' },
+    ],
+  }).then((response) => {
+    if (response.action === 'open') shell.openExternal(url).catch(() => {});
+  });
+}
+
+/** "example.com" for "https://www.example.com". */
+function hostLabel(origin: string) {
+  try {
+    return new URL(origin).hostname.replace(/^www\./, '');
+  } catch {
+    return '';
+  }
 }
 
 /** Popup windows (e.g. "Sign in with Google") opened by websites. */
@@ -899,10 +1224,111 @@ function reload(ignoreCache = false) {
 }
 
 function changeZoom(delta: number | null) {
-  const contents = activeContents();
-  if (!contents) return;
-  const level = delta === null ? 0 : contents.getZoomLevel() + delta;
-  contents.setZoomLevel(Math.max(-5, Math.min(5, level)));
+  const tab = activeTab();
+  if (tab) changeZoomFor(tab, delta);
+}
+
+/** Zooms a tab and remembers the zoom for its site. */
+function changeZoomFor(tab: Tab, delta: number | null) {
+  const contents = pageOf(tab);
+  if (!contents || tab.isNewTab) return;
+  const level = Math.max(
+    -5,
+    Math.min(5, delta === null ? 0 : contents.getZoomLevel() + delta),
+  );
+  contents.setZoomLevel(level);
+  if (!tab.isPrivate) setZoom(originOf(contents.getURL()), level);
+  if (tab.id === activeTabId) sendState();
+}
+
+function applySiteZoom(tab: Tab, url: string) {
+  const contents = pageOf(tab);
+  const origin = originOf(url);
+  if (!contents || !origin || tab.isPrivate) return;
+  const level = getZoom(origin);
+  if (contents.getZoomLevel() !== level) contents.setZoomLevel(level);
+  if (tab.id === activeTabId) sendState();
+}
+
+// ---------------------------------------------------------------- page actions
+
+function openFind() {
+  const tab = activeTab();
+  if (!tab || tab.isNewTab || settingsOpen || !pageOf(tab)) return;
+  uiContents()?.focus();
+  sendToUi('nya:find-open', null);
+}
+
+function toggleBookmarkFor(tab: Tab | null) {
+  const url = tab ? shownUrl(tab) : '';
+  if (!tab || !/^(https?|file):/i.test(url)) return;
+  toggleBookmark(url, tabTitle(tab));
+  sendState();
+}
+
+function printPage(contents: WebContents | null) {
+  contents?.print({}, () => {});
+}
+
+async function savePageAs(contents: WebContents | null) {
+  if (!contents || !window) return;
+  const name =
+    (contents.getTitle() || 'page').replace(/[\\/:*?"<>|]+/g, ' ').trim() ||
+    'page';
+  const result = await dialog.showSaveDialog(window, {
+    defaultPath: path.join(app.getPath('downloads'), `${name}.html`),
+    filters: [{ name: 'Web page, complete', extensions: ['html', 'htm'] }],
+  });
+  if (result.canceled || !result.filePath) return;
+  contents.savePage(result.filePath, 'HTMLComplete').catch(() => {});
+}
+
+function viewSource(tab: Tab | null) {
+  const url = tab ? shownUrl(tab) : '';
+  if (!tab || !isWebUrl(url)) return;
+  createTab(`view-source:${url}`, {
+    nextToActive: true,
+    isPrivate: tab.isPrivate,
+  });
+}
+
+async function openFileDialog() {
+  if (!window) return;
+  const result = await dialog.showOpenDialog(window, {
+    properties: ['openFile', 'multiSelections'],
+    filters: [
+      {
+        name: 'Pages, PDFs and images',
+        extensions: [
+          'html',
+          'htm',
+          'pdf',
+          'svg',
+          'png',
+          'jpg',
+          'jpeg',
+          'gif',
+          'webp',
+          'txt',
+        ],
+      },
+      { name: 'All files', extensions: ['*'] },
+    ],
+  });
+  if (!result.canceled) openPaths(result.filePaths);
+}
+
+function openPaths(paths: string[]) {
+  for (const file of paths.slice(0, 20)) {
+    if (fs.existsSync(file) && fs.statSync(file).isFile()) {
+      createTab(pathToFileURL(file).href);
+    }
+  }
+}
+
+function toggleFullScreen() {
+  if (!window || window.isDestroyed()) return;
+  window.setFullScreen(!window.isFullScreen());
 }
 
 function focusAddressBar() {
@@ -925,6 +1351,35 @@ function runAction(action: ActionId) {
       return goForward();
     case 'newTab':
       return newTab();
+    case 'privateTab':
+      return newPrivateTab();
+    case 'duplicateTab':
+      if (activeTabId !== null) duplicateTab(activeTabId);
+      return;
+    case 'pinTab':
+      if (activeTabId !== null) togglePin(activeTabId);
+      return;
+    case 'muteTab':
+      if (activeTabId !== null) toggleMute(activeTabId);
+      return;
+    case 'find':
+      return openFind();
+    case 'bookmarkPage':
+      return toggleBookmarkFor(activeTab());
+    case 'print':
+      return printPage(activeContents());
+    case 'savePage':
+      return void savePageAs(activeContents());
+    case 'openFile':
+      return void openFileDialog();
+    case 'viewSource':
+      return viewSource(activeTab());
+    case 'fullScreen':
+      return toggleFullScreen();
+    case 'openBookmarks':
+      return showPanelPage('bookmarks');
+    case 'openPasswords':
+      return showPanelPage('passwords');
     case 'closeTab':
       if (activeTabId !== null) closeTab(activeTabId);
       return;
@@ -999,6 +1454,467 @@ function handleShortcut(input: Input): boolean {
   if (!action) return false;
   action();
   return true;
+}
+
+// ---------------------------------------------------------------- questions
+
+interface NoticeResponse {
+  action: string | null;
+  fields: Record<string, string>;
+  choice: string;
+}
+
+interface PendingNotice extends Notice {
+  /** What it is about, so a newer question of the same kind replaces it. */
+  kind: string;
+  /** Stays when its tab goes to another page (password saving). */
+  keepOnNavigate: boolean;
+  resolve: (response: NoticeResponse) => void;
+}
+
+const NO_ANSWER: NoticeResponse = { action: null, fields: {}, choice: '' };
+let notices: PendingNotice[] = [];
+let nextNoticeId = 1;
+
+/** Shows a question in the bar under the toolbar and waits for the answer. */
+function ask(
+  notice: Omit<Notice, 'id'> & { kind: string },
+  keepOnNavigate = false,
+): Promise<NoticeResponse> {
+  // A newer question of the same kind for the same tab replaces the old one.
+  for (const old of notices.filter(
+    (n) => n.kind === notice.kind && n.tabId === notice.tabId,
+  )) {
+    answerNotice(old.id, NO_ANSWER);
+  }
+  return new Promise((resolve) => {
+    notices.push({ ...notice, id: nextNoticeId++, keepOnNavigate, resolve });
+    sendNotice();
+    layout();
+  });
+}
+
+function visibleNotice(): PendingNotice | null {
+  return (
+    notices.find((n) => n.tabId === null || n.tabId === activeTabId) ?? null
+  );
+}
+
+function sendNotice() {
+  const notice = visibleNotice();
+  sendToUi(
+    'nya:notice',
+    notice
+      ? {
+          id: notice.id,
+          tabId: notice.tabId,
+          text: notice.text,
+          fields: notice.fields,
+          choices: notice.choices,
+          actions: notice.actions,
+        }
+      : null,
+  );
+}
+
+function answerNotice(id: number, response: NoticeResponse) {
+  const index = notices.findIndex((n) => n.id === id);
+  if (index === -1) return;
+  const [notice] = notices.splice(index, 1);
+  notice.resolve(response);
+  sendNotice();
+  layout();
+}
+
+/** A tab closed or went to another page: its questions get no answer. */
+function dropNotices(tabId: number, navigation = false) {
+  for (const notice of notices.filter(
+    (n) => n.tabId === tabId && !(navigation && n.keepOnNavigate),
+  )) {
+    answerNotice(notice.id, NO_ANSWER);
+  }
+}
+
+// ---------------------------------------------------------------- sessions
+
+/** How each permission is described: "example.com wants to ...". */
+const PERMISSION_PHRASES: Record<string, string> = {
+  camera: 'use your camera',
+  microphone: 'use your microphone',
+  geolocation: 'know your location',
+  notifications: 'send you notifications',
+  midi: 'use your MIDI devices',
+  'clipboard-read': 'see what you copied',
+  'idle-detection': 'know when you are away',
+  'window-management': 'manage windows on your screens',
+  'display-capture': 'see your screen',
+};
+
+/** Our permission names for an Electron permission request. */
+function permissionNames(
+  permission: string,
+  details: { mediaTypes?: string[]; mediaType?: string },
+): string[] {
+  switch (permission) {
+    case 'media': {
+      const types =
+        details.mediaTypes ??
+        (details.mediaType && details.mediaType !== 'unknown'
+          ? [details.mediaType]
+          : ['video', 'audio']);
+      return [
+        ...(types.includes('video') ? ['camera'] : []),
+        ...(types.includes('audio') ? ['microphone'] : []),
+      ];
+    }
+    case 'midi':
+    case 'midiSysex':
+      return ['midi'];
+    case 'geolocation':
+    case 'notifications':
+    case 'clipboard-read':
+    case 'idle-detection':
+    case 'window-management':
+    case 'display-capture':
+      return [permission];
+    default:
+      return [];
+  }
+}
+
+function decisionFor(isPrivate: boolean, origin: string, name: string) {
+  return (
+    (isPrivate ? privateDecisions.get(`${origin} ${name}`) : undefined) ??
+    getPermission(origin, name)
+  );
+}
+
+function rememberDecision(
+  isPrivate: boolean,
+  origin: string,
+  name: string,
+  decision: PermissionDecision,
+) {
+  if (isPrivate) privateDecisions.set(`${origin} ${name}`, decision);
+  else setPermission(origin, name, decision);
+}
+
+/** Permissions, screen sharing and ad blocking for a session. */
+function setUpSession(ses: Session, isPrivate: boolean) {
+  ses.setPermissionRequestHandler((contents, permission, callback, details) => {
+    if (AUTO_ALLOWED.has(permission)) return callback(true);
+    const origin = originOf(details.requestingUrl || contents.getURL());
+    // Screen sharing asks once, in its own picker (setDisplayMediaRequestHandler).
+    if (permission === 'display-capture') {
+      return callback(
+        !!origin &&
+          decisionFor(isPrivate, origin, 'display-capture') !== 'block',
+      );
+    }
+    const names = permissionNames(
+      permission,
+      details as { mediaTypes?: string[] },
+    );
+    if (!names.length || !origin) return callback(false);
+    const decisions = names.map((n) => decisionFor(isPrivate, origin, n));
+    if (decisions.every((d) => d === 'allow')) return callback(true);
+    if (decisions.some((d) => d === 'block')) return callback(false);
+    const tab = tabs.find((t) => pageOf(t) === contents);
+    if (!tab) return callback(false);
+    const what = names.map((n) => PERMISSION_PHRASES[n] ?? n).join(' and ');
+    void ask({
+      kind: `permission:${names.join('+')}`,
+      tabId: tab.id,
+      text: `${hostLabel(origin)} wants to ${what}`,
+      actions: [
+        { id: 'allow', label: 'Allow' },
+        { id: 'block', label: 'Block' },
+      ],
+    }).then((response) => {
+      if (response.action === 'allow' || response.action === 'block') {
+        for (const name of names) {
+          rememberDecision(isPrivate, origin, name, response.action);
+        }
+      }
+      callback(response.action === 'allow');
+    });
+  });
+  ses.setPermissionCheckHandler(
+    (_contents, permission, requestingOrigin, details) => {
+      if (AUTO_ALLOWED.has(permission)) return true;
+      const origin = originOf(requestingOrigin);
+      if (permission === 'display-capture') {
+        return (
+          !!origin &&
+          decisionFor(isPrivate, origin, 'display-capture') !== 'block'
+        );
+      }
+      const names = permissionNames(
+        permission,
+        details as { mediaType?: string },
+      );
+      return (
+        names.length > 0 &&
+        !!origin &&
+        names.every((n) => decisionFor(isPrivate, origin, n) === 'allow')
+      );
+    },
+  );
+  ses.setDisplayMediaRequestHandler((request, callback) => {
+    void (async () => {
+      const contents = request.frame
+        ? allWebContents.fromFrame(request.frame)
+        : null;
+      const tab = tabs.find((t) => pageOf(t) === contents);
+      const origin = originOf(request.frame?.url ?? '');
+      if (!tab || !origin) return callback({});
+      if (decisionFor(isPrivate, origin, 'display-capture') === 'block') {
+        return callback({});
+      }
+      const hidden = overlaySourceId();
+      const sources = (
+        await desktopCapturer.getSources({ types: ['screen', 'window'] })
+      )
+        .filter((source) => source.id !== hidden)
+        // Whole screens first, then windows.
+        .sort(
+          (a, b) =>
+            Number(b.id.startsWith('screen:')) -
+            Number(a.id.startsWith('screen:')),
+        );
+      const response = await ask({
+        kind: 'screen',
+        tabId: tab.id,
+        text: `${hostLabel(origin)} wants to see your screen. Share:`,
+        choices: sources.map((source) => ({
+          value: source.id,
+          label: source.name,
+        })),
+        actions: [
+          { id: 'share', label: 'Share' },
+          { id: 'cancel', label: 'Cancel' },
+        ],
+      });
+      const source = sources.find((s) => s.id === response.choice);
+      if (response.action !== 'share' || !source) return callback({});
+      callback({
+        video: source,
+        // A whole screen can share its sound too.
+        ...(source.id.startsWith('screen:') ? { audio: 'loopback' } : {}),
+      });
+    })();
+  });
+  attachAdblock(
+    ses,
+    (pageUrl) => settings.blockAds && !adsAllowed(originOf(pageUrl)),
+  );
+}
+
+let privateSessionReady = false;
+
+function setUpPrivateSession() {
+  if (privateSessionReady) return;
+  privateSessionReady = true;
+  setUpSession(session.fromPartition(PRIVATE_PARTITION), true);
+}
+
+/** The last private tab closed: forget everything it did. */
+function clearPrivateSession() {
+  const ses = session.fromPartition(PRIVATE_PARTITION);
+  void ses.clearStorageData();
+  void ses.clearCache();
+  ses.clearAuthCache().catch(() => {});
+  privateDecisions.clear();
+}
+
+// ---------------------------------------------------------------- passwords
+
+/** A page sent a sign-in form: offer to save (or update) the password. */
+function offerToSave(
+  tab: Tab,
+  origin: string,
+  username: string,
+  password: string,
+) {
+  if (isSaved(origin, username, password)) return;
+  const update = loginsFor(origin).some((l) => l.username === username);
+  const site = hostLabel(origin);
+  void ask(
+    {
+      kind: 'save-password',
+      tabId: tab.id,
+      text: update
+        ? `Update the saved password for ${username || 'this login'} on ${site}?`
+        : `Save your password for ${site}? It stays encrypted on this computer.`,
+      actions: [
+        { id: 'save', label: update ? 'Update' : 'Save' },
+        { id: 'never', label: 'Never for this site' },
+        { id: 'later', label: 'Not now' },
+      ],
+    },
+    true,
+  ).then((response) => {
+    if (response.action === 'save') saveLogin(origin, username, password);
+    else if (response.action === 'never') setNeverSavePasswords(origin, true);
+  });
+}
+
+/** A page with a sign-in form: offer to fill in a saved login. */
+function offerToFill(tab: Tab, origin: string) {
+  const saved = loginsFor(origin);
+  if (!saved.length) return;
+  const site = hostLabel(origin);
+  void ask({
+    kind: 'fill-password',
+    tabId: tab.id,
+    text:
+      saved.length === 1
+        ? `Sign in to ${site} as ${saved[0].username || 'your saved login'}?`
+        : `Sign in to ${site} as`,
+    choices:
+      saved.length > 1
+        ? saved.map((l) => ({ value: l.id, label: l.username || '(no name)' }))
+        : undefined,
+    actions: [
+      { id: 'fill', label: 'Fill in' },
+      { id: 'later', label: 'Not now' },
+    ],
+  }).then((response) => {
+    if (response.action !== 'fill') return;
+    const login =
+      saved.length === 1
+        ? saved[0]
+        : saved.find((l) => l.id === response.choice);
+    const contents = pageOf(tab);
+    if (!login || !contents || originOf(contents.getURL()) !== origin) return;
+    const password = revealPassword(login.id);
+    if (password !== null) {
+      contents.send('nya:login-fill', login.username, password);
+    }
+  });
+}
+
+// ---------------------------------------------------------------- menus
+
+function showTabMenu(id: number) {
+  const tab = findTab(id);
+  if (!tab || !window) return;
+  const contents = pageOf(tab);
+  const index = tabs.indexOf(tab);
+  const url = shownUrl(tab);
+  const closeAll = (ids: number[]) => ids.forEach((tabId) => closeTab(tabId));
+  Menu.buildFromTemplate([
+    { label: 'New tab', click: () => newTab() },
+    {
+      label: 'Reload',
+      enabled: !tab.isNewTab,
+      click: () => contents?.reload(),
+    },
+    { label: 'Duplicate', enabled: !!url, click: () => duplicateTab(id) },
+    { label: tab.pinned ? 'Unpin' : 'Pin', click: () => togglePin(id) },
+    {
+      label: contents?.isAudioMuted() ? 'Unmute tab' : 'Mute tab',
+      click: () => toggleMute(id),
+    },
+    {
+      label: isBookmarked(url) ? 'Remove bookmark' : 'Bookmark',
+      enabled: /^(https?|file):/i.test(url),
+      click: () => toggleBookmarkFor(tab),
+    },
+    { type: 'separator' },
+    { label: 'Close', click: () => closeTab(id) },
+    {
+      label: 'Close other tabs',
+      enabled: tabs.some((t) => t.id !== id && !t.pinned),
+      click: () =>
+        closeAll(tabs.filter((t) => t.id !== id && !t.pinned).map((t) => t.id)),
+    },
+    {
+      label: 'Close tabs below',
+      enabled: index < tabs.length - 1,
+      click: () => closeAll(tabs.slice(index + 1).map((t) => t.id)),
+    },
+    { type: 'separator' },
+    {
+      label: 'Reopen closed tab',
+      enabled: closedTabUrls.length > 0,
+      click: () => reopenClosedTab(),
+    },
+  ]).popup({ window });
+}
+
+/** The lock icon in the address bar: about this site. */
+function showSiteMenu(x: number, y: number) {
+  const tab = activeTab();
+  const contents = pageOf(tab);
+  if (!tab || !contents || !window) return;
+  const url = shownUrl(tab);
+  const origin = originOf(url);
+  const security = securityOf(url);
+  const items: Electron.MenuItemConstructorOptions[] = [
+    {
+      label:
+        security === 'secure'
+          ? 'Connection is secure'
+          : security === 'insecure'
+            ? 'Connection is not secure'
+            : security === 'local'
+              ? 'File on this computer'
+              : 'Nya page',
+      enabled: false,
+    },
+  ];
+  if (origin) {
+    items.push(
+      { type: 'separator' },
+      {
+        label: 'Block ads and trackers here',
+        type: 'checkbox',
+        enabled: settings.blockAds,
+        checked: settings.blockAds && !adsAllowed(origin),
+        click: () => {
+          setAdsAllowed(origin, !adsAllowed(origin));
+          contents.reload();
+        },
+      },
+      {
+        label: 'Delete cookies and data for this site',
+        click: async () => {
+          await contents.session.clearStorageData({ origin });
+          contents.reload();
+        },
+      },
+      { label: 'Site permissions…', click: () => showPanelPage('privacy') },
+    );
+  }
+  Menu.buildFromTemplate(items).popup({
+    window,
+    x: Math.round(x),
+    y: Math.round(y),
+  });
+}
+
+// ---------------------------------------------------------------- updates
+
+async function lookForUpdate(announce: boolean) {
+  const update = await checkForUpdate();
+  if (!update) return null;
+  readyUpdate = update;
+  sendToUi('nya:update-ready', update.version);
+  if (announce) {
+    void ask({
+      kind: 'update',
+      tabId: null,
+      text: `Nya ${update.version} is ready to install.`,
+      actions: [
+        { id: 'restart', label: 'Restart to update' },
+        { id: 'later', label: 'Later' },
+      ],
+    }).then((response) => {
+      if (response.action === 'restart') installUpdate(update);
+    });
+  }
+  return update.version;
 }
 
 // ---------------------------------------------------------------- window
@@ -1171,6 +2087,11 @@ function createWindow(urls: string[] = []) {
   let closeAnimated = false;
   let closing = false;
   win.on('close', (event) => {
+    // Remember the tabs as they are now, before they close one by one.
+    if (!sessionFrozen) {
+      persistSession();
+      sessionFrozen = true;
+    }
     if (closeAnimated || !animationsOn()) return;
     if (!win.isVisible() || win.isMinimized()) return;
     event.preventDefault();
@@ -1197,6 +2118,9 @@ function createWindow(urls: string[] = []) {
   // The window title shows the active tab, not the UI page's own <title>.
   win.on('page-title-updated', (event) => event.preventDefault());
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  win.webContents.on('context-menu', (_event, params) =>
+    showEditMenu(win, params),
+  );
   win.webContents.on('before-input-event', (event, input) => {
     if (handleShortcut(input)) event.preventDefault();
   });
@@ -1229,9 +2153,27 @@ function createWindow(urls: string[] = []) {
     );
   }
 
-  if (urls.length === 0) createTab(settings.homePage || null);
+  let restored = false;
+  if (!sessionRestored && settings.startup === 'restore') {
+    const saved = loadSession();
+    for (const tab of saved.tabs) {
+      createTab(tab.url, {
+        lazyTitle: tab.title,
+        pinned: tab.pinned,
+        activate: false,
+      });
+    }
+    restored = tabs.length > 0;
+    if (restored && urls.length === 0) {
+      activateTab(tabs[Math.min(saved.active, tabs.length - 1)].id);
+    }
+  }
+  sessionRestored = true;
+  if (urls.length === 0 && !restored) createTab(settings.homePage || null);
   for (const url of urls) createTab(url);
 }
+
+let sessionRestored = false;
 
 function setUpMenu() {
   if (process.platform === 'darwin') {
@@ -1331,14 +2273,7 @@ function setUpIpc() {
     if (fromUi(event.sender)) openDownloadsFolder();
   });
   ipcMain.on('browser:show-page', (event, page: unknown) => {
-    const pages: PanelPage[] = [
-      'appearance',
-      'navigation',
-      'features',
-      'history',
-      'downloads',
-    ];
-    if (fromUi(event.sender) && pages.includes(page as PanelPage)) {
+    if (fromUi(event.sender) && PANEL_PAGES.includes(page as PanelPage)) {
       showPanelPage(page as PanelPage);
     }
   });
@@ -1390,6 +2325,229 @@ function setUpIpc() {
   ipcMain.on('browser:default-browser-set', (event) => {
     if (fromUi(event.sender)) void openDefaultAppsSettings();
   });
+  // ---- everything below uses "nya:" messages from our UI only
+  const on = (channel: string, handler: (...args: unknown[]) => void) =>
+    ipcMain.on(channel, (event, ...args) => {
+      if (fromUi(event.sender)) handler(...args);
+    });
+  const handle = (channel: string, handler: (...args: unknown[]) => unknown) =>
+    ipcMain.handle(channel, (event, ...args) =>
+      fromUi(event.sender) ? handler(...args) : null,
+    );
+  const isText = (value: unknown, max = 4096): value is string =>
+    typeof value === 'string' && value.length <= max;
+
+  on('nya:notice-answer', (id, action, fields, choice) => {
+    if (!isId(id)) return;
+    const clean: Record<string, string> = {};
+    if (fields && typeof fields === 'object') {
+      for (const [key, value] of Object.entries(fields)) {
+        if (isText(key, 64) && isText(value, 1024)) clean[key] = value;
+      }
+    }
+    answerNotice(id, {
+      action: isText(action, 64) ? action : null,
+      fields: clean,
+      choice: isText(choice, 512) ? choice : '',
+    });
+  });
+
+  // Find on page.
+  on('nya:find', (text, forward, newSearch) => {
+    const contents = activeContents();
+    if (!contents || !isText(text, 500)) return;
+    if (!text) {
+      contents.stopFindInPage('clearSelection');
+      sendToUi('nya:find-result', { active: 0, total: 0 });
+      return;
+    }
+    contents.findInPage(text, {
+      forward: forward !== false,
+      findNext: newSearch === true,
+    });
+  });
+  on('nya:find-stop', () => activeContents()?.stopFindInPage('keepSelection'));
+
+  // Address bar suggestions.
+  const suggestContext = () => ({
+    tabs: tabs
+      .filter((t) => t.id !== activeTabId && !t.isNewTab)
+      .map((t) => ({ id: t.id, title: tabTitle(t), url: shownUrl(t) })),
+    bookmarks: getBookmarks(),
+    history: getHistory(),
+    asAddress: (text: string) => {
+      const url = toUrl(text, false);
+      return url && !url.startsWith(SEARCH_ENGINES[settings.searchEngine].url)
+        ? url
+        : null;
+    },
+    searchUrl,
+    engineName: SEARCH_ENGINES[settings.searchEngine].name,
+  });
+  handle('nya:suggest', (query) =>
+    isText(query, 500)
+      ? localSuggestions(query, suggestContext())
+      : { suggestions: [], complete: '' },
+  );
+  handle('nya:suggest-remote', async (query) => {
+    if (!isText(query, 500) || !settings.searchSuggestions) return [];
+    if (activeTab()?.isPrivate) return [];
+    const terms = await remoteSuggestions(query, settings.searchEngine);
+    return terms.map((term) => ({
+      kind: 'search',
+      value: searchUrl(term),
+      title: term,
+      detail: `Search ${SEARCH_ENGINES[settings.searchEngine].name}`,
+    }));
+  });
+  // The dropdown covers the page, which is a separate layer the UI can't
+  // draw over: show a picture of the page under it instead.
+  handle('nya:suggest-open', async () => {
+    const tab = activeTab();
+    const contents = pageOf(tab);
+    let image: string | null = null;
+    if (
+      window &&
+      tab &&
+      contents &&
+      !tab.isNewTab &&
+      !tab.lazyUrl &&
+      !settingsOpen &&
+      !suggestOpen
+    ) {
+      try {
+        const picture = await contents.capturePage();
+        if (!picture.isEmpty()) {
+          image = `data:image/jpeg;base64,${picture.toJPEG(85).toString('base64')}`;
+        }
+      } catch {
+        // No picture: the dropdown shows over the plain background.
+      }
+    }
+    return image && window ? { image, bounds: pageBounds(window) } : null;
+  });
+  // The UI shows the picture first, then asks for the page to be hidden.
+  on('nya:suggest-cover', () => {
+    suggestOpen = true;
+    layout();
+  });
+  on('nya:suggest-close', () => {
+    suggestOpen = false;
+    layout();
+  });
+  on('nya:switch-tab', (id) => isId(id) && activateTab(id));
+  on('nya:history-forget', (url) => isText(url) && deleteHistoryUrl(url));
+
+  // Bookmarks.
+  handle('nya:bookmarks', () => getBookmarks());
+  on('nya:bookmark-toggle', () => toggleBookmarkFor(activeTab()));
+  on('nya:bookmark-remove', (id) => isText(id, 64) && removeBookmark(id));
+  on('nya:bookmark-rename', (id, title) => {
+    if (isText(id, 64) && isText(title, 1024)) renameBookmark(id, title);
+  });
+
+  // Passwords.
+  handle('nya:logins', () => ({
+    available: canStorePasswords(),
+    logins: listLogins(),
+  }));
+  handle('nya:login-reveal', (id) =>
+    isText(id, 64) ? revealPassword(id) : null,
+  );
+  on('nya:login-delete', (id) => isText(id, 64) && deleteLogin(id));
+  handle('nya:logins-import', async () => {
+    if (!window || !canStorePasswords()) return null;
+    const result = await dialog.showOpenDialog(window, {
+      title: 'Import passwords',
+      properties: ['openFile'],
+      filters: [{ name: 'Passwords (CSV)', extensions: ['csv'] }],
+    });
+    if (result.canceled || !result.filePaths[0]) return null;
+    try {
+      return importPasswordsCsv(fs.readFileSync(result.filePaths[0], 'utf-8'));
+    } catch {
+      return 0;
+    }
+  });
+
+  // Site permissions and exceptions.
+  handle('nya:sites', () => getSites());
+  on('nya:site-reset', (origin, permission) => {
+    if (!isText(origin, 512)) return;
+    resetSite(origin, isText(permission, 64) ? permission : undefined);
+  });
+  on('nya:site-set', (origin, key, value) => {
+    if (!isText(origin, 512)) return;
+    if (key === 'allowAds') setAdsAllowed(origin, value === true);
+    if (key === 'neverSavePasswords') {
+      setNeverSavePasswords(origin, value === true);
+    }
+    if (key === 'zoom' && typeof value === 'number') setZoom(origin, value);
+  });
+
+  // Import from other browsers.
+  handle('nya:import-sources', () => importSources());
+  handle('nya:import', (id) => (isText(id, 32) ? importFrom(id) : null));
+
+  // Updates.
+  handle('nya:update-status', () => ({
+    supported: updatesSupported(),
+    current: app.getVersion(),
+    ready: readyUpdate?.version ?? null,
+  }));
+  handle('nya:update-check', () =>
+    updatesSupported() ? lookForUpdate(false) : null,
+  );
+  on('nya:update-install', () => readyUpdate && installUpdate(readyUpdate));
+
+  // Tabs, files and the address bar's buttons.
+  on('nya:tab-menu', (id) => isId(id) && showTabMenu(id));
+  on('nya:tab-mute', (id) => isId(id) && toggleMute(id));
+  on('nya:new-private-tab', () => newPrivateTab());
+  on('nya:site-menu', (x, y) => {
+    if (typeof x === 'number' && typeof y === 'number') showSiteMenu(x, y);
+  });
+  on('nya:zoom-reset', () => changeZoom(null));
+  on('nya:open-file', () => void openFileDialog());
+  on('nya:open-paths', (paths) => {
+    if (Array.isArray(paths)) openPaths(paths.filter((p) => isText(p, 1024)));
+  });
+  on('nya:open-links', (links) => {
+    if (!Array.isArray(links)) return;
+    for (const link of links.slice(0, 20)) {
+      const url = isText(link) ? toUrl(link, false) : null;
+      if (url) createTab(url);
+    }
+  });
+
+  // From the password helper in web pages (tab-preload.ts).
+  const tabFor = (sender: WebContents) =>
+    tabs.find((t) => pageOf(t) === sender) ?? null;
+  const loginOrigin = (event: Electron.IpcMainEvent) => {
+    const frame = event.senderFrame;
+    // Only the page itself, never frames inside it.
+    if (!frame || frame !== event.sender.mainFrame) return '';
+    return originOf(frame.url);
+  };
+  ipcMain.on(
+    'nya:login-submitted',
+    (event, username: unknown, password: unknown) => {
+      const tab = tabFor(event.sender);
+      const origin = loginOrigin(event);
+      if (!tab || tab.isPrivate || !origin || !settings.offerPasswords) return;
+      if (!canStorePasswords() || passwordsNeverSaved(origin)) return;
+      if (!isText(username, 512) || !isText(password, 1024) || !password)
+        return;
+      offerToSave(tab, origin, username, password);
+    },
+  );
+  ipcMain.on('nya:login-form', (event) => {
+    const tab = tabFor(event.sender);
+    const origin = loginOrigin(event);
+    if (!tab || tab.isPrivate || !origin || !settings.offerPasswords) return;
+    offerToFill(tab, origin);
+  });
+
   ipcMain.handle('browser:clear-data', async (event) => {
     if (!fromUi(event.sender)) return false;
     await clearBrowsingData();
@@ -1406,14 +2564,6 @@ app.whenReady().then(() => {
   }
   void registerAsBrowser();
   app.on('second-instance', (_event, argv) => openLinks(linksFromArgs(argv)));
-  session.defaultSession.setPermissionRequestHandler(
-    (_contents, permission, callback) => {
-      callback(ALLOWED_PERMISSIONS.has(permission));
-    },
-  );
-  session.defaultSession.setPermissionCheckHandler((_contents, permission) =>
-    ALLOWED_PERMISSIONS.has(permission),
-  );
 
   // Widevine (DRM) is downloaded into the user's profile on first launch and
   // kept up to date by Chromium. The window doesn't wait for it: the new tab
@@ -1426,8 +2576,51 @@ app.whenReady().then(() => {
 
   loadSettings();
   initHistory(() => sendToUi('browser:history-changed', null));
+  initBookmarks(() => {
+    sendToUi('nya:bookmarks-changed', null);
+    sendState();
+  });
+  initSites(() => sendToUi('nya:sites-changed', null));
+  initPasswords(() => sendToUi('nya:logins-changed', null));
+  initAdblock();
+  setUpSession(session.defaultSession, false);
+
+  // Sites that ask for a username and password in a browser box.
+  app.on('login', (event, contents, _details, authInfo, callback) => {
+    event.preventDefault();
+    const tab = tabs.find((t) => pageOf(t) === contents);
+    void ask({
+      kind: 'http-login',
+      tabId: tab?.id ?? null,
+      text: authInfo.isProxy
+        ? `The proxy ${authInfo.host} needs you to sign in`
+        : `${authInfo.host} asks you to sign in${authInfo.realm ? ` (${authInfo.realm})` : ''}`,
+      fields: [
+        { name: 'username', label: 'Username', type: 'text' },
+        { name: 'password', label: 'Password', type: 'password' },
+      ],
+      actions: [
+        { id: 'signin', label: 'Sign in' },
+        { id: 'cancel', label: 'Cancel' },
+      ],
+    }).then((response) => {
+      if (response.action === 'signin') {
+        callback(
+          response.fields.username ?? '',
+          response.fields.password ?? '',
+        );
+      } else {
+        callback();
+      }
+    });
+  });
+
   initDownloads(session.defaultSession, {
-    askWhere: () => settings.askDownloadLocation,
+    askWhere: () => {
+      const ask = settings.askDownloadLocation || askNextDownload;
+      askNextDownload = false;
+      return ask;
+    },
     onChange: () => sendToUi('browser:downloads', getDownloads()),
   });
   applyTheme();
@@ -1437,11 +2630,27 @@ app.whenReady().then(() => {
   setUpMenu();
   createWindow(linksFromArgs(process.argv));
 
+  // Look for a new version a little after starting, then twice a day.
+  if (updatesSupported()) {
+    const look = () => settings.autoUpdate && void lookForUpdate(true);
+    setTimeout(look, 20_000);
+    setInterval(look, 12 * 60 * 60 * 1000);
+  }
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 });
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
+  if (process.platform === 'darwin') return;
+  if (!settings.clearOnExit) {
+    app.quit();
+    return;
+  }
+  // "Clear data when Nya closes": cookies, cache and site data.
+  const ses = session.defaultSession;
+  void Promise.allSettled([ses.clearStorageData(), ses.clearCache()]).then(() =>
+    app.quit(),
+  );
 });

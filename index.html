@@ -61,13 +61,109 @@
     </aside>
 
     <div id="toolbar" class="bar">
-      <input
-        id="address"
-        type="text"
-        placeholder="Search or enter website address"
-        autocomplete="off"
-        spellcheck="false"
-      />
+      <div id="address-box" class="address-box">
+        <button
+          id="site-button"
+          class="icon-button"
+          title="About this site"
+          aria-label="About this site"
+        >
+          <svg class="icon icon-secure" viewBox="0 0 24 24" aria-hidden="true">
+            <rect x="5" y="11" width="14" height="10" rx="2" />
+            <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+          </svg>
+          <svg
+            class="icon icon-insecure"
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+          >
+            <path d="M12 4 3 20h18z" />
+            <line x1="12" y1="10" x2="12" y2="14" />
+            <line x1="12" y1="17" x2="12" y2="17" />
+          </svg>
+          <svg class="icon icon-local" viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"
+            />
+            <polyline points="14 3 14 9 20 9" />
+          </svg>
+          <svg class="icon icon-private" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M3 3l18 18" />
+            <path
+              d="M10.6 5.1A10 10 0 0 1 12 5c6 0 10 7 10 7a17 17 0 0 1-3.2 4"
+            />
+            <path
+              d="M6.6 6.6C3.9 8.4 2 12 2 12s4 7 10 7a9.7 9.7 0 0 0 5.4-1.6"
+            />
+            <path d="M9.9 9.9a3 3 0 0 0 4.2 4.2" />
+          </svg>
+        </button>
+        <input
+          id="address"
+          type="text"
+          placeholder="Search or enter website address"
+          autocomplete="off"
+          spellcheck="false"
+          aria-label="Address and search"
+        />
+        <button id="zoom-chip" class="text-button" title="Reset zoom" hidden>
+          100%
+        </button>
+        <button
+          id="bookmark-button"
+          class="icon-button"
+          title="Bookmark this page"
+          aria-label="Bookmark this page"
+        >
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+            <polygon
+              points="12 3 14.8 8.8 21 9.6 16.5 14 17.6 20.2 12 17.3 6.4 20.2 7.5 14 3 9.6 9.2 8.8 12 3"
+            />
+          </svg>
+        </button>
+      </div>
+
+      <div id="find-bar" class="find-bar" hidden>
+        <input
+          id="find-input"
+          type="text"
+          placeholder="Find on page"
+          spellcheck="false"
+          aria-label="Find on page"
+        />
+        <span id="find-count" class="find-count"></span>
+        <button
+          id="find-prev"
+          class="icon-button"
+          title="Previous (Shift+Enter)"
+          aria-label="Previous match"
+        >
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+            <polyline points="6 15 12 9 18 15" />
+          </svg>
+        </button>
+        <button
+          id="find-next"
+          class="icon-button"
+          title="Next (Enter)"
+          aria-label="Next match"
+        >
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+            <polyline points="6 9 12 15 18 9" />
+          </svg>
+        </button>
+        <button
+          id="find-close"
+          class="icon-button"
+          title="Close (Esc)"
+          aria-label="Close find"
+        >
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+            <line x1="6" y1="6" x2="18" y2="18" />
+            <line x1="18" y1="6" x2="6" y2="18" />
+          </svg>
+        </button>
+      </div>
 
       <div class="window-controls" aria-label="Window">
         <button
@@ -109,8 +205,21 @@
       </div>
     </div>
 
+    <!-- Questions: a site asking for a permission, saving a password... -->
+    <div id="notice-bar" class="bar" role="alertdialog" hidden>
+      <span id="notice-text" class="notice-text"></span>
+      <div id="notice-controls" class="notice-controls"></div>
+    </div>
+
     <!-- Soft glow around the web page for "Smooth dividers". -->
     <div id="page-glow" aria-hidden="true"></div>
+
+    <!-- Address bar suggestions. The page is a separate layer the UI can't
+         draw over, so a picture of it is shown underneath while open. -->
+    <div id="suggest" hidden>
+      <img id="suggest-backdrop" alt="" hidden />
+      <ul id="suggest-list" class="suggest-list" role="listbox"></ul>
+    </div>
 
     <section id="start-page" hidden>
       <div class="start-inner">
@@ -128,6 +237,10 @@
             aria-label="Search or enter website address"
           />
         </form>
+        <p id="private-note" class="start-note" hidden>
+          Private tab. Its history, cookies and passwords are forgotten when you
+          close it.
+        </p>
       </div>
     </section>
 
@@ -173,6 +286,12 @@
             </svg>
             <span class="label">Features</span>
           </button>
+          <button class="row category" data-category="privacy">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6z" />
+            </svg>
+            <span class="label">Privacy</span>
+          </button>
           <div class="nav-divider" role="separator"></div>
           <button class="row category" data-category="history">
             <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -188,6 +307,22 @@
               <line x1="5" y1="20" x2="19" y2="20" />
             </svg>
             <span class="label">Downloads</span>
+          </button>
+          <button class="row category" data-category="bookmarks">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+              <polygon
+                points="12 3 14.8 8.8 21 9.6 16.5 14 17.6 20.2 12 17.3 6.4 20.2 7.5 14 3 9.6 9.2 8.8 12 3"
+              />
+            </svg>
+            <span class="label">Bookmarks</span>
+          </button>
+          <button class="row category" data-category="passwords">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="8" cy="15" r="4" />
+              <line x1="11" y1="12" x2="20" y2="3" />
+              <line x1="17" y1="6" x2="20" y2="9" />
+            </svg>
+            <span class="label">Passwords</span>
           </button>
         </div>
       </nav>
@@ -339,7 +474,7 @@
                       >Open links from other apps in Nya</small
                     >
                   </span>
-                  <button id="make-default">Make default</button>
+                  <button id="make-default" class="button">Make default</button>
                 </div>
                 <label class="setting-row">
                   <span>
@@ -361,6 +496,30 @@
                     type="text"
                     spellcheck="false"
                     placeholder="Clean search page"
+                  />
+                </label>
+                <label class="setting-row">
+                  <span>
+                    <strong>When Nya starts</strong>
+                    <small>Pick up where you left off, or start fresh</small>
+                  </span>
+                  <select id="setting-startup">
+                    <option value="restore">Reopen your tabs</option>
+                    <option value="newTab">Open a new tab</option>
+                  </select>
+                </label>
+                <label class="setting-row">
+                  <span>
+                    <strong>Search suggestions</strong>
+                    <small id="search-suggestions-text"
+                      >Sends what you type in the address bar to your search
+                      engine</small
+                    >
+                  </span>
+                  <input
+                    id="setting-search-suggestions"
+                    type="checkbox"
+                    class="switch"
                   />
                 </label>
               </div>
@@ -395,6 +554,22 @@
                     class="switch"
                   />
                 </label>
+                <div id="updates-row" class="setting-row">
+                  <span>
+                    <strong>Updates</strong>
+                    <small id="update-status">Checking…</small>
+                  </span>
+                  <div class="row-controls">
+                    <button id="update-button" class="button">Check now</button>
+                    <input
+                      id="setting-auto-update"
+                      type="checkbox"
+                      class="switch"
+                      title="Download new versions automatically"
+                      aria-label="Download new versions automatically"
+                    />
+                  </div>
+                </div>
                 <div class="setting-row">
                   <span>
                     <strong>Clear browsing data</strong>
@@ -465,6 +640,105 @@
                   </span>
                 </div>
                 <div id="downloads-list"></div>
+              </div>
+            </section>
+
+            <section class="settings-panel" data-panel="privacy" hidden>
+              <div class="settings-card">
+                <label class="setting-row">
+                  <span>
+                    <strong>Block ads and trackers</strong>
+                    <small
+                      >Using a public list of ad and tracking sites, kept on
+                      this computer</small
+                    >
+                  </span>
+                  <input
+                    id="setting-block-ads"
+                    type="checkbox"
+                    class="switch"
+                  />
+                </label>
+                <label class="setting-row">
+                  <span>
+                    <strong>Offer to save passwords</strong>
+                    <small
+                      >Saved passwords are encrypted and never leave this
+                      computer</small
+                    >
+                  </span>
+                  <input
+                    id="setting-offer-passwords"
+                    type="checkbox"
+                    class="switch"
+                  />
+                </label>
+                <label class="setting-row">
+                  <span>
+                    <strong>Clear cookies and site data when Nya closes</strong>
+                    <small>You will be signed out of websites every time</small>
+                  </span>
+                  <input
+                    id="setting-clear-on-exit"
+                    type="checkbox"
+                    class="switch"
+                  />
+                </label>
+              </div>
+              <div class="settings-card">
+                <div class="card-title">
+                  <span>Site permissions</span>
+                </div>
+                <div id="sites-list"></div>
+              </div>
+            </section>
+
+            <section class="settings-panel" data-panel="bookmarks" hidden>
+              <div class="panel-tools">
+                <input
+                  id="bookmarks-search"
+                  type="text"
+                  placeholder="Search bookmarks"
+                  spellcheck="false"
+                />
+              </div>
+              <div class="settings-card">
+                <div class="setting-row">
+                  <span>
+                    <strong>Import from another browser</strong>
+                    <small id="import-status"
+                      >Copies its bookmarks and history into Nya</small
+                    >
+                  </span>
+                  <div class="row-controls">
+                    <select id="import-source" aria-label="Browser"></select>
+                    <button id="import-button" class="button">Import</button>
+                  </div>
+                </div>
+              </div>
+              <div class="settings-card list-card">
+                <div class="card-title">
+                  <span>Bookmarks</span>
+                </div>
+                <div id="bookmarks-list"></div>
+              </div>
+            </section>
+
+            <section class="settings-panel" data-panel="passwords" hidden>
+              <div class="panel-tools">
+                <input
+                  id="passwords-search"
+                  type="text"
+                  placeholder="Search passwords"
+                  spellcheck="false"
+                />
+                <button id="passwords-import" class="button">Import CSV</button>
+              </div>
+              <div class="settings-card list-card">
+                <div class="card-title">
+                  <span id="passwords-title">Saved passwords</span>
+                </div>
+                <div id="passwords-list"></div>
               </div>
             </section>
           </div>

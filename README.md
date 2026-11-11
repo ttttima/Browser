@@ -65,8 +65,22 @@ Your settings, history and downloads list are kept: they live in
   scrolling through tabs with the mouse wheel
 - **Clean new tab page**: just a search bar, nothing else
 - **Quiet address bar**: shows only the site name until you click it
+- **Picks up where you left off**: your tabs come back after a restart,
+  with pinned tabs, muting and private tabs (Ctrl+Shift+N)
+- **Smart address bar**: suggestions from your history, bookmarks and open
+  tabs as you type, and a lock that shows whether a site is secure
+- **Bookmarks**: the star in the address bar or Ctrl+D, and import from
+  Chrome, Edge, Brave, Opera, Vivaldi or Firefox
+- **Passwords**: saved encrypted on your computer and filled in when you
+  sign in; import them from a CSV
 - **History and Downloads** pages: search, reopen and remove visits; pause,
   resume, open and retry downloads
+- **Everyday tools**: find on page, print, save page, right-click menus,
+  spell check, PDF viewer, open files or drop them on the window
+- **Ad and tracker blocking**, which you can turn off for a single site
+- **Sites ask first** before using your camera, microphone, location,
+  notifications or screen
+- **Updates itself** from the GitHub releases when a new version is out
 - **Color modes**: dark, light and OLED (pure black), with any accent color
 - **Force dark mode**: makes every website dark, without flashing
 - **Protected video and music** (DRM) through Google's Widevine, which
@@ -77,8 +91,8 @@ Your settings, history and downloads list are kept: they live in
   accent color when it opens, and tips back and falls away when it closes
 - **Your own shortcuts**: bind any action to a key or mouse button, and add
   shortcuts that open your favorite sites
-- **Private by default**: websites can't use your camera, microphone,
-  location or notifications
+- **Everything stays on your computer**: history, bookmarks, passwords and
+  settings are never sent anywhere
 - **No admin rights**: installs and runs just for your user
 
 <p align="center">

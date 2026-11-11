@@ -6,6 +6,18 @@ Nya is a desktop web browser built with Electron + TypeScript + Vite (Electron F
 - `src/preload.ts`: the only bridge between the UI and the main process
 - `src/renderer.ts` + `index.html` + `src/index.css`: the browser UI
 - `src/shared.ts`: types and constants used by all three
+- `src/ui-*.ts`: UI modules (toolbar: suggestions, find, questions bar;
+  pages: privacy, bookmarks, passwords)
+- `src/tab-preload.ts`: runs in every website (dark mode forcer, password
+  helper), in an isolated world
+- Data modules: `library.ts` (history, downloads), `bookmarks.ts`,
+  `passwords.ts`, `site-settings.ts`, `session-store.ts`, plus `importer.ts`,
+  `adblock.ts`, `updater.ts`, `suggest.ts`, `context-menu.ts`
+
+Everything the user saves (history, bookmarks, passwords, settings, open
+tabs) stays on their computer in the user data folder; never send it
+anywhere. Passwords are encrypted with `safeStorage`. Only GitHub (updates),
+the ad block list, and opt-in search suggestions use the network.
 
 Nya must never need administrator rights: the app and installer run as
 `asInvoker` and Squirrel installs per user into `%LocalAppData%`. Don't add

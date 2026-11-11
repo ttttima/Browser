@@ -199,6 +199,11 @@ function park(win: BrowserWindow) {
   win.setPosition(-40000, -40000);
 }
 
+/** So screen sharing can leave the (invisible) overlay out of its list. */
+export function overlaySourceId(): string | null {
+  return overlay && !overlay.isDestroyed() ? overlay.getMediaSourceId() : null;
+}
+
 export function destroyOverlay() {
   if (overlay && !overlay.isDestroyed()) overlay.destroy();
   overlay = null;

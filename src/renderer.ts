@@ -1,4 +1,11 @@
 import './index.css';
+import { pageShown } from './ui-pages';
+import { icon } from './ui-common';
+import {
+  attachSuggestions,
+  closeSuggestions,
+  suggestKeydown,
+} from './ui-toolbar';
 import {
   ACCENT_PRESETS,
   ACTIONS,
@@ -104,7 +111,9 @@ function navigate() {
 }
 
 address.addEventListener('keydown', (event) => {
+  if (suggestKeydown(event)) return;
   if (event.key === 'Enter') {
+    closeSuggestions();
     navigate();
   } else if (event.key === 'Escape') {
     // Undo what was typed and go back to the page's real URL.
@@ -162,15 +171,20 @@ window.browser.onFocusAddress(() => {
 
 const startPage = $<HTMLElement>('#start-page');
 const startSearch = $<HTMLInputElement>('#start-search');
+const privateNote = $<HTMLElement>('#private-note');
+attachSuggestions(address);
+attachSuggestions(startSearch);
 
 $('#start-form').addEventListener('submit', (event) => {
   event.preventDefault();
   if (!startSearch.value.trim()) return;
+  closeSuggestions();
   window.browser.navigate(startSearch.value);
   startSearch.value = '';
   startSearch.blur();
 });
 startSearch.addEventListener('keydown', (event) => {
+  if (suggestKeydown(event)) return;
   if (event.key === 'Escape') startSearch.value = '';
 });
 
@@ -222,6 +236,8 @@ void updateDefaultBrowser();
 const CLOSE_ICON =
   '<svg class="icon icon-sm" viewBox="0 0 24 24" aria-hidden="true"><line x1="6" y1="6" x2="18" y2="18" /><line x1="18" y1="6" x2="6" y2="18" /></svg>';
 
+const PRIVATE_ICON = icon('eyeOff');
+
 const tabList = $<HTMLUListElement>('#tabs');
 const tabElements = new Map<number, HTMLLIElement>();
 let tabOrder: number[] = [];
@@ -247,6 +263,15 @@ function createTabElement(id: number) {
   const title = document.createElement('span');
   title.className = 'tab-title';
 
+  // Speaker: shows while the tab plays sound (or is muted); click to mute.
+  const audio = document.createElement('button');
+  audio.className = 'tab-audio';
+  audio.hidden = true;
+  audio.addEventListener('click', (event) => {
+    event.stopPropagation();
+    window.nya.send('nya:tab-mute', id);
+  });
+
   const close = document.createElement('button');
   close.className = 'tab-close';
   close.title = 'Close tab';
@@ -256,7 +281,11 @@ function createTabElement(id: number) {
     window.browser.closeTab(id);
   });
 
-  item.append(icon, title, close);
+  item.append(icon, title, audio, close);
+  item.addEventListener('contextmenu', (event) => {
+    event.preventDefault();
+    window.nya.send('nya:tab-menu', id);
+  });
 
   item.addEventListener('click', () => window.browser.activateTab(id));
   item.addEventListener('keydown', (event) => {
@@ -314,14 +343,21 @@ function clearDropMarkers() {
 }
 
 function renderTabIcon(icon: HTMLElement, tab: TabInfo) {
-  const key = tab.loading ? 'loading' : (tab.favicon ?? `letter:${tab.title}`);
+  const key = tab.loading
+    ? 'loading'
+    : tab.isPrivate
+      ? 'private'
+      : (tab.favicon ?? `letter:${tab.title}`);
   if (icon.dataset.key === key) return;
   icon.dataset.key = key;
   icon.replaceChildren();
-  icon.classList.remove('spinner', 'letter');
+  icon.classList.remove('spinner', 'letter', 'private');
 
   if (tab.loading) {
     icon.classList.add('spinner');
+  } else if (tab.isPrivate) {
+    icon.classList.add('private');
+    icon.innerHTML = PRIVATE_ICON;
   } else if (tab.favicon) {
     const image = document.createElement('img');
     image.src = tab.favicon;
@@ -350,6 +386,7 @@ function renderTabs(state: TabsState) {
     document.body.classList.toggle('start-open', showStart);
     if (showStart) startSearch.value = '';
   }
+  privateNote.hidden = !active?.isPrivate;
 
   $('#toggle-sidebar').title = state.sidebarCollapsed
     ? 'Expand sidebar'
@@ -378,6 +415,19 @@ function renderTabs(state: TabsState) {
     item.ariaSelected = String(active);
     item.title = `${tab.title}\n${tab.url}`;
     item.querySelector('.tab-title')!.textContent = tab.title;
+    const next = state.tabs[index + 1];
+    item.classList.toggle('pinned', tab.pinned);
+    item.classList.toggle('pinned-last', tab.pinned && !!next && !next.pinned);
+    item.classList.toggle('private', tab.isPrivate);
+    const audio = item.querySelector<HTMLButtonElement>('.tab-audio')!;
+    audio.hidden = !tab.audible && !tab.muted;
+    const audioKey = tab.muted ? 'muted' : 'playing';
+    if (audio.dataset.key !== audioKey) {
+      audio.dataset.key = audioKey;
+      audio.innerHTML = icon(tab.muted ? 'speakerOff' : 'speaker', 'icon-sm');
+      audio.title = tab.muted ? 'Unmute tab' : 'Mute tab';
+      audio.ariaLabel = audio.title;
+    }
     renderTabIcon(item.querySelector<HTMLElement>('.tab-icon')!, tab);
 
     // Keep DOM order in sync without recreating elements.
@@ -460,7 +510,12 @@ function setSettingsVisible(open: boolean) {
 const categories = document.querySelectorAll<HTMLButtonElement>('.category');
 const panels = document.querySelectorAll<HTMLElement>('.settings-panel');
 const openDownloads = $<HTMLButtonElement>('#open-downloads');
-const SETTINGS_PAGES: PanelPage[] = ['appearance', 'navigation', 'features'];
+const SETTINGS_PAGES: PanelPage[] = [
+  'appearance',
+  'navigation',
+  'features',
+  'privacy',
+];
 let currentPage: PanelPage = 'appearance';
 let lastSettingsPage: PanelPage = 'appearance';
 
@@ -477,6 +532,7 @@ function showPage(page: PanelPage) {
   updatePanelButtons();
   if (page === 'history') void loadHistory();
   if (page === 'downloads') renderDownloads();
+  pageShown(page);
 }
 
 /** Gear lit on settings pages, download arrow lit on Downloads. */

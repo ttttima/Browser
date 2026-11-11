@@ -1,7 +1,8 @@
 // Runs inside every website tab before the site's own scripts, in an
-// isolated world: the site cannot see or call anything here. It only hosts
-// the built-in dark mode forcer, so it can decide before the first paint and
-// the page never flashes.
+// isolated world: the site cannot see or call anything here. It hosts the
+// built-in dark mode forcer (here so it can decide before the first paint
+// and the page never flashes), the mouse side buttons and the password
+// helper.
 import { ipcRenderer } from 'electron';
 
 /**
@@ -174,3 +175,129 @@ ipcRenderer.on('browser:force-dark', (_event, on: unknown) => {
     setDarkened(pageLightness() >= DARKEN_ABOVE);
   }
 });
+
+// ---------------------------------------------------------------- passwords
+//
+// Tells Nya when the page shows a sign-in form (so it can offer a saved
+// login) and when one is sent (so it can offer to save it). Filling happens
+// only after the user clicks "Fill in" in Nya's bar. Only the page itself
+// takes part, never frames inside it.
+
+const isTopPage =
+  window === window.top && /^https?:$/.test(window.location.protocol);
+
+function visible(element: HTMLElement) {
+  const box = element.getBoundingClientRect();
+  return box.width > 0 && box.height > 0 && !element.closest('[hidden]');
+}
+
+function passwordFields(): HTMLInputElement[] {
+  return [
+    ...document.querySelectorAll<HTMLInputElement>('input[type="password"]'),
+  ].filter(visible);
+}
+
+/** The username field that belongs to a password field. */
+function usernameFor(password: HTMLInputElement): HTMLInputElement | null {
+  const scope: ParentNode = password.form ?? document;
+  const named = scope.querySelector<HTMLInputElement>(
+    'input[autocomplete="username"], input[autocomplete="email"]',
+  );
+  if (named && visible(named)) return named;
+  // Otherwise the last text-like field before the password.
+  const inputs = [...scope.querySelectorAll<HTMLInputElement>('input')];
+  const before = inputs.slice(0, inputs.indexOf(password)).reverse();
+  return (
+    before.find(
+      (input) =>
+        ['text', 'email', 'tel', ''].includes(input.type) && visible(input),
+    ) ?? null
+  );
+}
+
+let formReported = false;
+let lastSent = '';
+
+function reportForm() {
+  if (formReported || passwordFields().length === 0) return;
+  formReported = true;
+  ipcRenderer.send('nya:login-form');
+}
+
+function captureLogin() {
+  const password = passwordFields().find((field) => field.value);
+  if (!password) return;
+  const username = usernameFor(password)?.value.trim() ?? '';
+  const key = `${username}\n${password.value}`;
+  if (key === lastSent) return;
+  lastSent = key;
+  ipcRenderer.send('nya:login-submitted', username, password.value);
+}
+
+if (isTopPage) {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const check = () => {
+    if (timer) return;
+    timer = setTimeout(() => {
+      timer = null;
+      reportForm();
+    }, 400);
+  };
+  window.addEventListener('DOMContentLoaded', () => {
+    check();
+    new MutationObserver(check).observe(document.body ?? document, {
+      childList: true,
+      subtree: true,
+    });
+  });
+
+  // Sent by a form, a button, or Enter in the password field.
+  window.addEventListener('submit', captureLogin, true);
+  window.addEventListener(
+    'click',
+    (event) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('button, input[type="submit"], [role="button"]')) {
+        captureLogin();
+      }
+    },
+    true,
+  );
+  window.addEventListener(
+    'keydown',
+    (event) => {
+      if (
+        event.key === 'Enter' &&
+        (event.target as HTMLElement)?.matches?.('input')
+      ) {
+        captureLogin();
+      }
+    },
+    true,
+  );
+
+  // The user chose "Fill in" in Nya's bar.
+  ipcRenderer.on(
+    'nya:login-fill',
+    (_event, username: unknown, password: unknown) => {
+      if (typeof username !== 'string' || typeof password !== 'string') return;
+      const field = passwordFields()[0];
+      if (!field) return;
+      // Set values the way typing does, so sites built with React etc. notice.
+      const setValue = (input: HTMLInputElement, value: string) => {
+        const setter = Object.getOwnPropertyDescriptor(
+          HTMLInputElement.prototype,
+          'value',
+        )?.set;
+        setter?.call(input, value);
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+      };
+      const user = usernameFor(field);
+      if (user && username) setValue(user, username);
+      setValue(field, password);
+      lastSent = `${username}\n${password}`;
+      field.focus();
+    },
+  );
+}

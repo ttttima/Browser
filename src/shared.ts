@@ -5,6 +5,11 @@ export interface BrowserState {
   canGoBack: boolean;
   canGoForward: boolean;
   loading: boolean;
+  /** Page zoom in percent (100 = normal). */
+  zoom: number;
+  security: PageSecurity;
+  bookmarked: boolean;
+  isPrivate: boolean;
 }
 
 export interface TabInfo {
@@ -15,6 +20,12 @@ export interface TabInfo {
   loading: boolean;
   /** Showing our clean search page instead of a website. */
   isNewTab: boolean;
+  pinned: boolean;
+  /** Playing sound right now. */
+  audible: boolean;
+  muted: boolean;
+  /** Private tab: nothing is remembered. */
+  isPrivate: boolean;
 }
 
 export interface TabsState {
@@ -33,27 +44,49 @@ export interface PageEdges {
 
 // ---------------------------------------------------------------- bindings
 
-/** Everything a key or mouse button can be bound to. */
+/**
+ * Everything a key or mouse button can be bound to, with the usual browser
+ * shortcuts as defaults. Every one can be changed or cleared in Settings.
+ */
 export const ACTIONS = [
   { id: 'reload', label: 'Refresh', binding: 'F5' },
   { id: 'back', label: 'Back', binding: 'Mouse4' },
   { id: 'forward', label: 'Forward', binding: 'Mouse5' },
-  { id: 'hardReload', label: 'Refresh without cache', binding: '' },
-  { id: 'newTab', label: 'New tab', binding: '' },
-  { id: 'closeTab', label: 'Close tab', binding: '' },
-  { id: 'reopenTab', label: 'Reopen closed tab', binding: '' },
-  { id: 'nextTab', label: 'Next tab', binding: '' },
-  { id: 'previousTab', label: 'Previous tab', binding: '' },
-  { id: 'focusAddress', label: 'Address bar', binding: '' },
+  { id: 'hardReload', label: 'Refresh without cache', binding: 'Ctrl+F5' },
+  { id: 'newTab', label: 'New tab', binding: 'Ctrl+T' },
+  { id: 'privateTab', label: 'New private tab', binding: 'Ctrl+Shift+N' },
+  { id: 'closeTab', label: 'Close tab', binding: 'Ctrl+W' },
+  { id: 'reopenTab', label: 'Reopen closed tab', binding: 'Ctrl+Shift+T' },
+  { id: 'duplicateTab', label: 'Duplicate tab', binding: '' },
+  { id: 'pinTab', label: 'Pin or unpin tab', binding: '' },
+  { id: 'muteTab', label: 'Mute or unmute tab', binding: 'Ctrl+M' },
+  { id: 'nextTab', label: 'Next tab', binding: 'Ctrl+Tab' },
+  { id: 'previousTab', label: 'Previous tab', binding: 'Ctrl+Shift+Tab' },
+  { id: 'focusAddress', label: 'Address bar', binding: 'Ctrl+L' },
+  { id: 'find', label: 'Find on page', binding: 'Ctrl+F' },
+  { id: 'bookmarkPage', label: 'Bookmark this page', binding: 'Ctrl+D' },
+  { id: 'print', label: 'Print', binding: 'Ctrl+P' },
+  { id: 'savePage', label: 'Save page as', binding: 'Ctrl+S' },
+  { id: 'openFile', label: 'Open file', binding: 'Ctrl+O' },
+  { id: 'viewSource', label: 'View page source', binding: 'Ctrl+U' },
   { id: 'toggleSidebar', label: 'Compact sidebar', binding: '' },
-  { id: 'openSettings', label: 'Settings', binding: '' },
-  { id: 'openHistory', label: 'History', binding: '' },
-  { id: 'openDownloads', label: 'Downloads', binding: '' },
-  { id: 'zoomIn', label: 'Zoom in', binding: '' },
-  { id: 'zoomOut', label: 'Zoom out', binding: '' },
-  { id: 'zoomReset', label: 'Reset zoom', binding: '' },
-  { id: 'devTools', label: 'Developer tools', binding: '' },
+  { id: 'fullScreen', label: 'Full screen', binding: 'F11' },
+  { id: 'openSettings', label: 'Settings', binding: 'Ctrl+,' },
+  { id: 'openHistory', label: 'History', binding: 'Ctrl+H' },
+  { id: 'openDownloads', label: 'Downloads', binding: 'Ctrl+J' },
+  { id: 'openBookmarks', label: 'Bookmarks', binding: 'Ctrl+Shift+O' },
+  { id: 'openPasswords', label: 'Passwords', binding: '' },
+  { id: 'zoomIn', label: 'Zoom in', binding: 'Ctrl+=' },
+  { id: 'zoomOut', label: 'Zoom out', binding: 'Ctrl+-' },
+  { id: 'zoomReset', label: 'Reset zoom', binding: 'Ctrl+0' },
+  { id: 'devTools', label: 'Developer tools', binding: 'F12' },
 ] as const;
+
+/**
+ * Bumped when new default shortcuts are added, so people who saved settings
+ * before get the new defaults for actions they never set themselves.
+ */
+export const BINDINGS_VERSION = 2;
 
 /** A user-made shortcut: press it to open \`url\` in a new tab. */
 export interface CustomBinding {
@@ -174,8 +207,109 @@ export type PanelPage =
   | 'appearance'
   | 'navigation'
   | 'features'
+  | 'privacy'
   | 'history'
-  | 'downloads';
+  | 'downloads'
+  | 'bookmarks'
+  | 'passwords';
+
+export const PANEL_PAGES: PanelPage[] = [
+  'appearance',
+  'navigation',
+  'features',
+  'privacy',
+  'history',
+  'downloads',
+  'bookmarks',
+  'passwords',
+];
+
+// ---------------------------------------------------------------- bookmarks
+
+export interface Bookmark {
+  id: string;
+  url: string;
+  title: string;
+  /** When it was added, in ms since 1970. */
+  time: number;
+}
+
+// ---------------------------------------------------------------- passwords
+
+/** A saved login as the UI sees it (the password stays in the main process). */
+export interface SavedLogin {
+  id: string;
+  origin: string;
+  username: string;
+  time: number;
+}
+
+// ---------------------------------------------------------------- sites
+
+export type PermissionDecision = 'allow' | 'block';
+
+/** What one website may do, as shown on the Privacy page. */
+export interface SiteInfo {
+  origin: string;
+  permissions: Record<string, PermissionDecision>;
+  /** Zoom level, 0 = 100%. */
+  zoom: number;
+  /** Ads and trackers are allowed on this site. */
+  allowAds: boolean;
+  /** Never offer to save passwords here. */
+  neverSavePasswords: boolean;
+}
+
+/** Names shown for website permissions. */
+export const PERMISSION_LABELS: Record<string, string> = {
+  camera: 'Camera',
+  microphone: 'Microphone',
+  geolocation: 'Location',
+  notifications: 'Notifications',
+  midi: 'MIDI devices',
+  'clipboard-read': 'See what you copied',
+  'display-capture': 'Share your screen',
+  'idle-detection': 'Know when you are away',
+  'window-management': 'Manage windows on your screens',
+  openExternal: 'Open other apps',
+};
+
+// ---------------------------------------------------------------- toolbar
+
+/** One line in the address bar dropdown. */
+export interface Suggestion {
+  kind: 'search' | 'url' | 'tab' | 'bookmark' | 'history';
+  /** What opens (a URL), or the tab id for kind "tab". */
+  value: string;
+  title: string;
+  /** Second line: the address, or "Switch to tab". */
+  detail: string;
+}
+
+/** Security of the page in the address bar. */
+export type PageSecurity = 'secure' | 'insecure' | 'local' | 'none';
+
+export interface FindResult {
+  active: number;
+  total: number;
+}
+
+/**
+ * A question or message in the bar under the toolbar: a site asking for a
+ * permission, saving a password, a sign-in box, an update...
+ */
+export interface Notice {
+  id: number;
+  /** The tab it belongs to (shown only there), or null for every tab. */
+  tabId: number | null;
+  text: string;
+  /** Inputs to fill in (sign-in boxes). */
+  fields?: { name: string; label: string; type: 'text' | 'password' }[];
+  /** A choice from a list (which screen to share). */
+  choices?: { value: string; label: string }[];
+  /** Buttons, the first is the main one. */
+  actions: { id: string; label: string }[];
+}
 
 export type Theme = 'dark' | 'light' | 'oled';
 
@@ -225,6 +359,20 @@ export interface Settings {
   accentColor: string;
   /** Zoom and fade the window when it opens and closes. */
   windowAnimations: boolean;
+  /** See BINDINGS_VERSION. */
+  bindingsVersion: number;
+  /** What opens when Nya starts. */
+  startup: 'restore' | 'newTab';
+  /** Ask the search engine for suggestions while typing (sends the text). */
+  searchSuggestions: boolean;
+  /** Block ads and trackers. */
+  blockAds: boolean;
+  /** Offer to save passwords and fill them in. */
+  offerPasswords: boolean;
+  /** Delete cookies, cache and site data when Nya closes. */
+  clearOnExit: boolean;
+  /** Download new versions in the background and offer to restart. */
+  autoUpdate: boolean;
 }
 
 export interface Rect {
@@ -259,4 +407,11 @@ export const DEFAULT_SETTINGS: Settings = {
   theme: 'dark',
   accentColor: '#4f7cff',
   windowAnimations: true,
+  bindingsVersion: BINDINGS_VERSION,
+  startup: 'restore',
+  searchSuggestions: false,
+  blockAds: true,
+  offerPasswords: true,
+  clearOnExit: false,
+  autoUpdate: true,
 };
