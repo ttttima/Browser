@@ -398,10 +398,17 @@ export const ACCENT_PRESETS = [
 
 export type SearchEngine = 'google' | 'duckduckgo' | 'bing' | 'brave';
 
+/** Auto-compact sidebar: unused this long, the sidebar compacts. */
+export const AUTO_COMPACT_MS = 5000;
+/** Auto-compact sidebar: the mouse rests this long to open it again. */
+export const HOVER_EXPAND_MS = 300;
+
 export interface Settings {
   searchEngine: SearchEngine;
   homePage: string;
   sidebarCollapsed: boolean;
+  /** Compact the sidebar when unused, open it again on hover. */
+  autoCompactSidebar: boolean;
   /** Show the lines between sections (sidebar, bars, rows). */
   showDividers: boolean;
   /** Soft, faded dividers instead of sharp 1px lines. */
@@ -464,6 +471,7 @@ export const DEFAULT_SETTINGS: Settings = {
   // Empty = new tabs show the clean search page.
   homePage: '',
   sidebarCollapsed: false,
+  autoCompactSidebar: false,
   showDividers: true,
   smoothDividers: false,
   forceDark: false,

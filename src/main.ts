@@ -304,6 +304,7 @@ function sanitizeSettings(value: Partial<Settings>): Settings {
         : DEFAULT_SETTINGS.searchEngine,
     homePage: homePage ?? DEFAULT_SETTINGS.homePage,
     sidebarCollapsed: value.sidebarCollapsed === true,
+    autoCompactSidebar: value.autoCompactSidebar === true,
     showDividers: value.showDividers !== false,
     smoothDividers: value.smoothDividers === true,
     forceDark: value.forceDark === true,
@@ -926,60 +927,26 @@ function reopenClosedTab() {
 const SLIDE_MS = 150;
 /** The web page is swapped for a picture while the sidebar slides. */
 let sidebarSliding = false;
-/** A toggle is running; another click waits for it (toggleQueued). */
-let sidebarToggling = false;
-let toggleQueued = false;
+/** The picture is being taken: clicks meanwhile wait for it, then flip. */
+let slidePreparing: Promise<void> | null = null;
+let slideEndTimer: ReturnType<typeof setTimeout> | null = null;
 let slideShotShown: (() => void) | null = null;
 
 /**
  * Compact <-> normal sidebar. The UI slides the width; the web page is a
  * separate layer that can't follow frame by frame, so for the slide it's
  * replaced by a picture of itself in the UI, then put back at its new size.
+ *
+ * Every click flips right away, even mid-slide: the slide just turns around
+ * from where it is (it's a CSS transition), and the page comes back once
+ * the clicking stops. So it can be clicked as fast as anyone likes.
  */
 async function toggleSidebar() {
-  // A click during a slide: do it right after, so no click is lost and a
-  // double click ends where it started.
-  if (sidebarToggling) {
-    toggleQueued = !toggleQueued;
-    return;
-  }
-  sidebarToggling = true;
-  try {
-    await slideSidebar();
-  } finally {
-    sidebarToggling = false;
-  }
-  if (toggleQueued) {
-    toggleQueued = false;
-    void toggleSidebar();
-  }
-}
-
-async function slideSidebar() {
-  const tab = activeTab();
-  const contents = pageOf(tab);
-  if (
-    window &&
-    tab &&
-    contents &&
-    pageShouldShow(tab) &&
-    !systemPreferences.getAnimationSettings().prefersReducedMotion
-  ) {
-    const picture = await capture(contents);
-    if (picture && window && !window.isDestroyed()) {
-      const shown = new Promise<void>((resolve) => {
-        slideShotShown = resolve;
-        setTimeout(resolve, 200);
-      });
-      sendToUi('terra:slide-shot', {
-        image: `data:image/jpeg;base64,${picture.toJPEG(90).toString('base64')}`,
-        bounds: pageBounds(window),
-      });
-      await shown;
-      slideShotShown = null;
-      sidebarSliding = true;
-      layout();
-    }
+  if (slidePreparing) await slidePreparing;
+  if (!sidebarSliding && window) {
+    slidePreparing = coverPageForSlide();
+    await slidePreparing;
+    slidePreparing = null;
   }
   settings.sidebarCollapsed = !settings.sidebarCollapsed;
   saveSettings();
@@ -989,12 +956,50 @@ async function slideSidebar() {
     layout();
     return;
   }
-  await wait(SLIDE_MS + 32);
+  if (slideEndTimer) clearTimeout(slideEndTimer);
+  slideEndTimer = setTimeout(() => void endSlide(), SLIDE_MS + 32);
+}
+
+/** Shows a picture of the web page in its place and hides the real one. */
+async function coverPageForSlide() {
+  const tab = activeTab();
+  const contents = pageOf(tab);
+  if (
+    !window ||
+    !tab ||
+    !contents ||
+    !pageShouldShow(tab) ||
+    systemPreferences.getAnimationSettings().prefersReducedMotion
+  ) {
+    return;
+  }
+  const picture = await capture(contents);
+  if (!picture || !window || window.isDestroyed()) return;
+  const shown = new Promise<void>((resolve) => {
+    slideShotShown = resolve;
+    setTimeout(resolve, 200);
+  });
+  sendToUi('terra:slide-shot', {
+    image: `data:image/jpeg;base64,${picture.toJPEG(90).toString('base64')}`,
+    bounds: pageBounds(window),
+  });
+  await shown;
+  slideShotShown = null;
+  sidebarSliding = true;
+  layout();
+}
+
+/** The clicking stopped: the real page comes back at its new size. */
+async function endSlide() {
+  slideEndTimer = null;
   sidebarSliding = false;
   layout();
-  // Let the page paint at its new size before the picture goes.
+  // Let the page paint at its new size before the picture goes, unless a
+  // new slide started meanwhile and needs it.
   await wait(48);
-  sendToUi('terra:slide-shot-clear', null);
+  if (!sidebarSliding && !slidePreparing) {
+    sendToUi('terra:slide-shot-clear', null);
+  }
 }
 
 // ---------------------------------------------------------------- dark mode
@@ -2495,6 +2500,11 @@ function setUpIpc() {
     typeof value === 'string' && value.length <= max;
 
   on('terra:slide-shot-ready', () => slideShotShown?.());
+  // Auto-compact sidebar (ui-auto-compact.ts) asks for a state, not a flip.
+  on('terra:sidebar-set', (collapsed) => {
+    if (typeof collapsed !== 'boolean' || !settings.autoCompactSidebar) return;
+    if (settings.sidebarCollapsed !== collapsed) void toggleSidebar();
+  });
   on('terra:ui-ready', () => {
     if (window) void showWindowAnimated(window);
   });

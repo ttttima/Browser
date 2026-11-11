@@ -3,6 +3,7 @@ import { pageShown } from './ui-pages';
 import { cancelColorPanel, openColorPanel } from './ui-color-panel';
 import { bookmarksReady } from './ui-sidebar';
 import { closeBookmarksPop } from './ui-bookmarks-pop';
+import { updateAutoCompact } from './ui-auto-compact';
 import { icon } from './ui-common';
 import {
   attachSuggestions,
@@ -382,6 +383,10 @@ function renderTabIcon(icon: HTMLElement, tab: TabInfo) {
 function renderTabs(state: TabsState) {
   setSidebarCollapsed(state.sidebarCollapsed);
   if (state.sidebarCollapsed) closeBookmarksPop();
+  updateAutoCompact({
+    collapsed: state.sidebarCollapsed,
+    settingsOpen: state.settingsOpen,
+  });
   document.body.classList.toggle('fullscreen', state.fullScreen);
   setSettingsVisible(state.settingsOpen);
 
@@ -614,6 +619,7 @@ const settingsPage = $<HTMLElement>('#settings');
 const searchEngine = $<HTMLSelectElement>('#setting-search-engine');
 const homePage = $<HTMLInputElement>('#setting-home-page');
 const sidebarCollapsed = $<HTMLInputElement>('#setting-sidebar-collapsed');
+const autoCompact = $<HTMLInputElement>('#setting-auto-compact');
 const showDividers = $<HTMLInputElement>('#setting-show-dividers');
 const forceDark = $<HTMLInputElement>('#setting-force-dark');
 const scrollTabs = $<HTMLInputElement>('#setting-scroll-tabs');
@@ -744,6 +750,9 @@ smoothDividers.addEventListener('change', () => {
 });
 sidebarCollapsed.addEventListener('change', () =>
   window.browser.updateSettings({ sidebarCollapsed: sidebarCollapsed.checked }),
+);
+autoCompact.addEventListener('change', () =>
+  window.browser.updateSettings({ autoCompactSidebar: autoCompact.checked }),
 );
 
 clearData.addEventListener('click', async () => {
@@ -1566,6 +1575,8 @@ window.browser.onSettingsChanged((settings) => {
   searchEngine.value = settings.searchEngine;
   if (document.activeElement !== homePage) homePage.value = settings.homePage;
   sidebarCollapsed.checked = settings.sidebarCollapsed;
+  autoCompact.checked = settings.autoCompactSidebar;
+  updateAutoCompact({ enabled: settings.autoCompactSidebar });
   showDividers.checked = settings.showDividers;
   smoothDividers.checked = settings.smoothDividers;
   forceDark.checked = settings.forceDark;
