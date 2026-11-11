@@ -1,5 +1,6 @@
 // The bookmarks pop-out: the button next to the sidebar toggle opens a list
-// of every bookmark, grouped in folders. Make, rename and delete folders
+// of every bookmark, grouped in folders. It's the only place bookmarks show
+// (besides the Bookmarks page): the sidebar itself is for tabs. Make, rename and delete folders
 // here; drag a bookmark onto a folder (or out of it) to move it, or use
 // "Move to folder" in its right-click menu.
 //
@@ -7,8 +8,30 @@
 // icons line up exactly with the tabs under it (and never overlap the web
 // page, which is drawn above our UI).
 import type { Bookmark, BookmarkFolder } from './shared';
-import { siteIcon } from './ui-sidebar';
 import { $, actionButton, hostOf, icon, terra } from './ui-common';
+
+/** The site's icon, or a letter badge when there is none (yet). */
+function siteIcon(bookmark: Bookmark) {
+  const box = document.createElement('span');
+  box.className = 'tab-icon';
+  const letter = () => {
+    box.replaceChildren();
+    box.classList.add('letter');
+    box.textContent = (
+      (bookmark.title || hostOf(bookmark.url)).trim()[0] ?? '•'
+    ).toUpperCase();
+  };
+  if (bookmark.favicon) {
+    const image = document.createElement('img');
+    image.src = bookmark.favicon;
+    image.alt = '';
+    image.addEventListener('error', letter);
+    box.append(image);
+  } else {
+    letter();
+  }
+  return box;
+}
 
 const button = $<HTMLButtonElement>('#bookmarks-pop-button');
 const pop = $<HTMLDivElement>('#bookmarks-pop');

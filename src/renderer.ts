@@ -1,7 +1,6 @@
 import './index.css';
 import { pageShown } from './ui-pages';
 import { cancelColorPanel, openColorPanel } from './ui-color-panel';
-import { bookmarksReady } from './ui-sidebar';
 import { closeBookmarksPop } from './ui-bookmarks-pop';
 import { updateAutoCompact } from './ui-auto-compact';
 import { icon } from './ui-common';
@@ -558,7 +557,7 @@ window.terra.on('terra:slide-shot-clear', () => {
 // ---- first paint
 //
 // The window stays hidden until the UI looks like the user set it up: their
-// colors, tabs and bookmarks. Then main shows it (and pictures it for the
+// colors and tabs. Then main shows it (and pictures it for the
 // opening animation), so nothing flashes in default colors or unstyled.
 
 let resolveSettings = () => {};
@@ -568,7 +567,7 @@ const settingsSeen = new Promise<void>((r) => (resolveSettings = r));
 const tabsSeen = new Promise<void>((r) => (resolveTabs = r));
 const stateSeen = new Promise<void>((r) => (resolveState = r));
 window.browser.onStateChanged(() => resolveState());
-void Promise.all([settingsSeen, tabsSeen, stateSeen, bookmarksReady]).then(() =>
+void Promise.all([settingsSeen, tabsSeen, stateSeen]).then(() =>
   // Two frames: the first lays the new state out, the second paints it.
   // Only then turn color transitions on (body.starting in index.css), so
   // the first frame doesn't fade in from the default colors.

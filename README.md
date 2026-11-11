@@ -79,10 +79,10 @@ you're happy.
   with pinned tabs, muting and private tabs (Ctrl+Shift+N)
 - **Smart address bar**: suggestions from your history, bookmarks and open
   tabs as you type, and a lock that shows whether a site is secure
-- **Bookmarks**: the star in the address bar or Ctrl+D puts a site in the
-  sidebar, one click away; the bookmarks button next to the sidebar toggle
-  shows them all, sorted into folders you make; import them from Chrome,
-  Edge, Brave, Opera, Vivaldi or Firefox
+- **Bookmarks**: save a page with the star in the address bar or Ctrl+D;
+  the bookmarks button next to the sidebar toggle shows them all, sorted
+  into folders you make; import them from Chrome, Edge, Brave, Opera,
+  Vivaldi or Firefox
 - **Passwords**: saved encrypted on your computer and filled in when you
   sign in; import them from a CSV
 - **History and Downloads** pages: search, reopen and remove visits; pause,

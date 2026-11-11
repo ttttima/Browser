@@ -1368,17 +1368,6 @@ body.smooth-dividers .setting-row:not([hidden]) + .setting-row {
     1;
 }
 
-/* The line under the sidebar bookmarks fades out at both ends too. */
-body.smooth-dividers #bookmark-list::after {
-  background: linear-gradient(
-    to right,
-    transparent,
-    var(--divider) var(--fade),
-    var(--divider) calc(100% - var(--fade)),
-    transparent
-  );
-}
-
 /* The line between folders and loose bookmarks in the pop-out too. */
 body.smooth-dividers .pop-group-end::after {
   background: linear-gradient(
@@ -1949,34 +1938,6 @@ body.settings-open #notice-bar {
   left: var(--space-2);
   height: 1px;
   background: var(--divider);
-}
-
-/* Bookmarks in the sidebar: rows shaped exactly like tabs, so icons and
-   titles line up, with a line under them like after pinned tabs. */
-#bookmark-list {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  flex-shrink: 0;
-  margin: 0 0 var(--space-2);
-  padding: 0;
-  list-style: none;
-}
-
-#bookmark-list::after {
-  content: '';
-  position: absolute;
-  right: var(--space-2);
-  bottom: calc(var(--space-1) * -1 - 1px);
-  left: var(--space-2);
-  height: 1px;
-  background: var(--divider);
-}
-
-.tab.bookmark-more,
-.tab.bookmark-more .tab-icon {
-  color: var(--muted);
 }
 
 /* ============================================================ bookmarks pop-out */

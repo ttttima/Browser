@@ -246,9 +246,6 @@ export interface BookmarkFolder {
   time: number;
 }
 
-/** How many bookmarks the sidebar shows; the rest are on the Bookmarks page. */
-export const SIDEBAR_BOOKMARKS = 8;
-
 // ---------------------------------------------------------------- passwords
 
 /** A saved login as the UI sees it (the password stays in the main process). */
