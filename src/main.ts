@@ -607,20 +607,28 @@ function pageBounds(win: BrowserWindow): Rect {
 }
 
 /** Places the active tab's page next to the sidebar and under the toolbar. */
+/**
+ * Whether this tab's web page is on screen. The settings page covers the
+ * whole window and the new-tab search page is drawn by our UI, so the web
+ * page is hidden in both cases, and during animations that use a picture.
+ */
+function pageShouldShow(tab: Tab) {
+  return (
+    tab.id === activeTabId &&
+    !settingsOpen &&
+    !tab.isNewTab &&
+    !tab.lazyUrl &&
+    !windowAnimating &&
+    !suggestOpen
+  );
+}
+
 function layout() {
   if (!window || window.isDestroyed()) return;
   const bounds = pageBounds(window);
 
   for (const tab of tabs) {
-    // The settings page covers the whole window and the new-tab search page
-    // is drawn by our UI, so hide the web page in both cases.
-    const visible =
-      tab.id === activeTabId &&
-      !settingsOpen &&
-      !tab.isNewTab &&
-      !tab.lazyUrl &&
-      !windowAnimating &&
-      !suggestOpen;
+    const visible = pageShouldShow(tab) && !sidebarSliding;
     tab.view.setVisible(visible);
     if (visible) tab.view.setBounds(bounds);
   }
@@ -914,12 +922,79 @@ function reopenClosedTab() {
   if (url) createTab(url);
 }
 
-function toggleSidebar() {
+/** Same as --duration in index.css: the sidebar slide's length. */
+const SLIDE_MS = 150;
+/** The web page is swapped for a picture while the sidebar slides. */
+let sidebarSliding = false;
+/** A toggle is running; another click waits for it (toggleQueued). */
+let sidebarToggling = false;
+let toggleQueued = false;
+let slideShotShown: (() => void) | null = null;
+
+/**
+ * Compact <-> normal sidebar. The UI slides the width; the web page is a
+ * separate layer that can't follow frame by frame, so for the slide it's
+ * replaced by a picture of itself in the UI, then put back at its new size.
+ */
+async function toggleSidebar() {
+  // A click during a slide: do it right after, so no click is lost and a
+  // double click ends where it started.
+  if (sidebarToggling) {
+    toggleQueued = !toggleQueued;
+    return;
+  }
+  sidebarToggling = true;
+  try {
+    await slideSidebar();
+  } finally {
+    sidebarToggling = false;
+  }
+  if (toggleQueued) {
+    toggleQueued = false;
+    void toggleSidebar();
+  }
+}
+
+async function slideSidebar() {
+  const tab = activeTab();
+  const contents = pageOf(tab);
+  if (
+    window &&
+    tab &&
+    contents &&
+    pageShouldShow(tab) &&
+    !systemPreferences.getAnimationSettings().prefersReducedMotion
+  ) {
+    const picture = await capture(contents);
+    if (picture && window && !window.isDestroyed()) {
+      const shown = new Promise<void>((resolve) => {
+        slideShotShown = resolve;
+        setTimeout(resolve, 200);
+      });
+      sendToUi('terra:slide-shot', {
+        image: `data:image/jpeg;base64,${picture.toJPEG(90).toString('base64')}`,
+        bounds: pageBounds(window),
+      });
+      await shown;
+      slideShotShown = null;
+      sidebarSliding = true;
+      layout();
+    }
+  }
   settings.sidebarCollapsed = !settings.sidebarCollapsed;
   saveSettings();
-  layout();
   sendTabs();
   sendSettings();
+  if (!sidebarSliding) {
+    layout();
+    return;
+  }
+  await wait(SLIDE_MS + 32);
+  sidebarSliding = false;
+  layout();
+  // Let the page paint at its new size before the picture goes.
+  await wait(48);
+  sendToUi('terra:slide-shot-clear', null);
 }
 
 // ---------------------------------------------------------------- dark mode
@@ -2419,6 +2494,7 @@ function setUpIpc() {
   const isText = (value: unknown, max = 4096): value is string =>
     typeof value === 'string' && value.length <= max;
 
+  on('terra:slide-shot-ready', () => slideShotShown?.());
   on('terra:ui-ready', () => {
     if (window) void showWindowAnimated(window);
   });

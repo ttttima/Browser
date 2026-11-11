@@ -136,6 +136,7 @@
 /* Until the saved colors, tabs and bookmarks are drawn (renderer.ts), no
    transitions: the first frame must show the user's colors, not a fade
    from the default ones. */
+body.starting,
 body.starting *,
 body.starting *::before,
 body.starting *::after {
@@ -163,8 +164,64 @@ body {
   grid-template-rows: var(--control-lg) auto minmax(0, 1fr);
 }
 
-body.sidebar-collapsed {
-  --sidebar-width: var(--sidebar-collapsed);
+/* Compact and normal sidebar slide into each other: the width follows
+   --sidebar-open (1 = full, 0 = compact), which is registered so it can
+   transition. renderer.ts adds .sidebar-narrow first (the width moves) and
+   .sidebar-collapsed when the slide ends (labels go), or the other way
+   round when expanding. The web page can't move with it, so main swaps it
+   for a picture (#page-shot) for the length of the slide. */
+@property --sidebar-open {
+  syntax: '<number>';
+  inherits: true;
+  initial-value: 1;
+}
+
+body {
+  --sidebar-open: 1;
+  --sidebar-width: calc(
+    var(--sidebar-collapsed) +
+      (var(--sidebar-full) - var(--sidebar-collapsed)) * var(--sidebar-open)
+  );
+  transition: --sidebar-open var(--duration);
+}
+
+body.sidebar-narrow {
+  --sidebar-open: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body {
+    transition: none;
+  }
+}
+
+/* While sliding, text is covered rather than squeezed, and the buttons on
+   the right of tabs step aside (even on the active tab) until it's done. */
+body.sidebar-sliding .tab-title,
+body.sidebar-sliding .label {
+  text-overflow: clip;
+}
+
+body.sidebar-sliding .tab .tab-close,
+body.sidebar-sliding .tab .tab-audio {
+  display: none;
+}
+
+/* The picture of the web page during the slide: pinned to the page's left
+   edge, any space it doesn't cover in the page's own edge color. */
+#page-shot {
+  position: relative;
+  grid-row: 3;
+  grid-column: 2;
+  overflow: hidden;
+  background: var(--edge);
+  pointer-events: none;
+}
+
+#page-shot img {
+  position: absolute;
+  top: 0;
+  left: 0;
 }
 
 /* "hidden" always hides, even elements styled with display: flex etc. */

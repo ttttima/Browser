@@ -380,7 +380,7 @@ function renderTabIcon(icon: HTMLElement, tab: TabInfo) {
 }
 
 function renderTabs(state: TabsState) {
-  document.body.classList.toggle('sidebar-collapsed', state.sidebarCollapsed);
+  setSidebarCollapsed(state.sidebarCollapsed);
   if (state.sidebarCollapsed) closeBookmarksPop();
   document.body.classList.toggle('fullscreen', state.fullScreen);
   setSettingsVisible(state.settingsOpen);
@@ -447,6 +447,108 @@ function renderTabs(state: TabsState) {
     .get(state.activeTabId ?? -1)
     ?.scrollIntoView({ block: 'nearest' });
 }
+
+// ---- sidebar slide
+
+const pageShot = $<HTMLDivElement>('#page-shot');
+const pageShotImage = pageShot.querySelector('img')!;
+let slideTimer = 0;
+
+/** The one UI duration (--duration in index.css), in ms. */
+function uiDuration() {
+  const value = getComputedStyle(document.documentElement)
+    .getPropertyValue('--duration')
+    .trim();
+  return value.endsWith('ms') ? parseFloat(value) : parseFloat(value) * 1000;
+}
+
+/**
+ * Compact <-> normal: the width slides (.sidebar-narrow, see index.css) and
+ * the labels go away only once it's narrow, or come back before it widens,
+ * so they are covered and uncovered instead of popping.
+ */
+function setSidebarCollapsed(collapsed: boolean) {
+  const body = document.body;
+  if (body.classList.contains('sidebar-narrow') === collapsed) return;
+  window.clearTimeout(slideTimer);
+  body.classList.toggle('sidebar-narrow', collapsed);
+  const animate =
+    !body.classList.contains('starting') &&
+    !matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (!animate) {
+    body.classList.toggle('sidebar-collapsed', collapsed);
+    body.classList.remove('sidebar-sliding');
+    return;
+  }
+  body.classList.add('sidebar-sliding');
+  if (!collapsed) body.classList.remove('sidebar-collapsed');
+  slideTimer = window.setTimeout(() => {
+    body.classList.toggle('sidebar-collapsed', collapsed);
+    body.classList.remove('sidebar-sliding');
+  }, uiDuration());
+}
+
+/**
+ * Most common color in the picture's rightmost column: what the page looks
+ * like at its right edge. It fills the strip the picture doesn't cover while
+ * the page area grows, so a white page doesn't get a dark band.
+ */
+function rightEdgeColor(image: HTMLImageElement) {
+  const height = image.naturalHeight;
+  if (!image.naturalWidth || !height) return null;
+  const canvas = document.createElement('canvas');
+  canvas.width = 1;
+  canvas.height = height;
+  const context = canvas.getContext('2d');
+  if (!context) return null;
+  context.drawImage(
+    image,
+    image.naturalWidth - 1,
+    0,
+    1,
+    height,
+    0,
+    0,
+    1,
+    height,
+  );
+  const data = context.getImageData(0, 0, 1, height).data;
+  const counts = new Map<number, number>();
+  let best = -1;
+  let bestCount = 0;
+  for (let i = 0; i < data.length; i += 4) {
+    const rgb = (data[i] << 16) | (data[i + 1] << 8) | data[i + 2];
+    const count = (counts.get(rgb) ?? 0) + 1;
+    counts.set(rgb, count);
+    if (count > bestCount) {
+      best = rgb;
+      bestCount = count;
+    }
+  }
+  return best < 0 ? null : `#${best.toString(16).padStart(6, '0')}`;
+}
+
+// Main sends a picture of the web page before the slide (the real page
+// can't move with it) and takes it away once the page is back.
+window.terra.on<{
+  image: string;
+  bounds: { width: number; height: number };
+}>('terra:slide-shot', async ({ image, bounds }) => {
+  pageShotImage.style.width = `${bounds.width}px`;
+  pageShotImage.style.height = `${bounds.height}px`;
+  pageShotImage.src = image;
+  await pageShotImage.decode().catch(() => {});
+  pageShot.style.background = rightEdgeColor(pageShotImage) ?? '';
+  pageShot.hidden = false;
+  requestAnimationFrame(() =>
+    requestAnimationFrame(() => window.terra.send('terra:slide-shot-ready')),
+  );
+});
+window.terra.on('terra:slide-shot-clear', () => {
+  pageShot.hidden = true;
+  pageShot.style.background = '';
+  pageShotImage.removeAttribute('src');
+});
 
 // ---- first paint
 //

@@ -102,6 +102,9 @@ exactly 8px above and below them.
 - One transition duration, `--duration` (150ms), on color/background/border/
   transform only. The window opening/closing animation is
   not CSS UI motion: it lives in `src/window-animation.ts`.
+- The one size animation is the sidebar sliding between compact and normal
+  (`--sidebar-open` in `index.css`, `toggleSidebar` in `main.ts`). It also
+  uses `--duration`; the web page is swapped for a picture while it slides.
 
 ### 8. Sync with main.ts
 
