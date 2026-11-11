@@ -133,6 +133,15 @@
   box-sizing: border-box;
 }
 
+/* Until the saved colors, tabs and bookmarks are drawn (renderer.ts), no
+   transitions: the first frame must show the user's colors, not a fade
+   from the default ones. */
+body.starting *,
+body.starting *::before,
+body.starting *::after {
+  transition: none !important;
+}
+
 html,
 body {
   height: 100%;

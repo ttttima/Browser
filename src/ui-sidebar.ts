@@ -94,4 +94,6 @@ async function render() {
 }
 
 terra.on('terra:bookmarks-changed', () => void render());
-void render();
+
+/** Resolves once the bookmarks are drawn the first time. */
+export const bookmarksReady = render().catch(() => {});

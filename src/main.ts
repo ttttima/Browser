@@ -2135,8 +2135,9 @@ function createWindow(urls: string[] = []) {
   window = win;
 
   if (animationsOn()) prepareOverlay();
-  win.once('ready-to-show', () => void showWindowAnimated(win));
-  // Never stay invisible if the first paint is slow.
+  // Shown when the UI says it has painted the user's colors, tabs and
+  // bookmarks ("terra:ui-ready"), not at its first paint, which still has
+  // the default colors. Never stay invisible if that takes too long.
   setTimeout(() => void showWindowAnimated(win), 3000);
 
   let closeAnimated = false;
@@ -2393,6 +2394,9 @@ function setUpIpc() {
   const isText = (value: unknown, max = 4096): value is string =>
     typeof value === 'string' && value.length <= max;
 
+  on('terra:ui-ready', () => {
+    if (window) void showWindowAnimated(window);
+  });
   on('terra:notice-answer', (id, action, fields, choice) => {
     if (!isId(id)) return;
     const clean: Record<string, string> = {};
