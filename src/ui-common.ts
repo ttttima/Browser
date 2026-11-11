@@ -37,6 +37,7 @@ export const PATHS = {
   copy: '<rect x="9" y="9" width="11" height="11" rx="2" /><path d="M5 15V5a2 2 0 0 1 2-2h8" />',
   speaker:
     '<polygon points="4 9 8 9 13 5 13 19 8 15 4 15 4 9" /><path d="M16.5 8.5a5 5 0 0 1 0 7" />',
+  list: '<line x1="9" y1="6" x2="20" y2="6" /><line x1="9" y1="12" x2="20" y2="12" /><line x1="9" y1="18" x2="20" y2="18" /><line x1="4" y1="6" x2="5" y2="6" /><line x1="4" y1="12" x2="5" y2="12" /><line x1="4" y1="18" x2="5" y2="18" />',
   speakerOff:
     '<polygon points="4 9 8 9 13 5 13 19 8 15 4 15 4 9" /><line x1="17" y1="10" x2="21" y2="14" /><line x1="21" y1="10" x2="17" y2="14" />',
 };

@@ -1086,6 +1086,34 @@ button.danger:hover:not(:disabled) {
   background: var(--accent);
 }
 
+/* Background tint: "None" is the plain background crossed out, "Same as
+   accent" is an accent ring with a dot. */
+.accent-swatch.tint-none {
+  border: 1px solid var(--input-border);
+  background:
+    linear-gradient(
+      135deg,
+      transparent calc(50% - 1px),
+      var(--muted) calc(50% - 1px),
+      var(--muted) calc(50% + 1px),
+      transparent calc(50% + 1px)
+    ),
+    var(--bg);
+}
+
+.accent-swatch.tint-accent {
+  border: 2px solid var(--accent);
+  background: radial-gradient(
+    circle,
+    var(--accent) 0 var(--space-1),
+    transparent var(--space-1)
+  );
+}
+
+#tint-custom.selected .accent-custom-preview {
+  background: var(--tint-custom);
+}
+
 /* ============================================================ smooth dividers */
 
 /* No lines at all. Instead of fading each panel on its own (which leaves a
@@ -1176,6 +1204,17 @@ body.smooth-dividers .setting-row:not([hidden]) + .setting-row {
       transparent
     )
     1;
+}
+
+/* The line under the sidebar bookmarks fades out at both ends too. */
+body.smooth-dividers #bookmark-list::after {
+  background: linear-gradient(
+    to right,
+    transparent,
+    var(--divider) var(--fade),
+    var(--divider) calc(100% - var(--fade)),
+    transparent
+  );
 }
 
 /* A setting that does nothing right now (e.g. smoothing with no dividers). */
@@ -1737,6 +1776,34 @@ body.settings-open #notice-bar {
   left: var(--space-2);
   height: 1px;
   background: var(--divider);
+}
+
+/* Bookmarks in the sidebar: rows shaped exactly like tabs, so icons and
+   titles line up, with a line under them like after pinned tabs. */
+#bookmark-list {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  flex-shrink: 0;
+  margin: 0 0 var(--space-2);
+  padding: 0;
+  list-style: none;
+}
+
+#bookmark-list::after {
+  content: '';
+  position: absolute;
+  right: var(--space-2);
+  bottom: calc(var(--space-1) * -1 - 1px);
+  left: var(--space-2);
+  height: 1px;
+  background: var(--divider);
+}
+
+.tab.bookmark-more,
+.tab.bookmark-more .tab-icon {
+  color: var(--muted);
 }
 
 /* Private tabs: an eye icon instead of the site's. */

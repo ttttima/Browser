@@ -78,8 +78,9 @@ you're happy.
   with pinned tabs, muting and private tabs (Ctrl+Shift+N)
 - **Smart address bar**: suggestions from your history, bookmarks and open
   tabs as you type, and a lock that shows whether a site is secure
-- **Bookmarks**: the star in the address bar or Ctrl+D, and import from
-  Chrome, Edge, Brave, Opera, Vivaldi or Firefox
+- **Bookmarks**: the star in the address bar or Ctrl+D puts a site in the
+  sidebar, one click away; import them from Chrome, Edge, Brave, Opera,
+  Vivaldi or Firefox
 - **Passwords**: saved encrypted on your computer and filled in when you
   sign in; import them from a CSV
 - **History and Downloads** pages: search, reopen and remove visits; pause,
@@ -90,7 +91,8 @@ you're happy.
 - **Sites ask first** before using your camera, microphone, location,
   notifications or screen
 - **Updates itself** from the GitHub releases when a new version is out
-- **Color modes**: dark, light and OLED (pure black), with any accent color
+- **Color modes**: dark, light and OLED (pure black), with any accent
+  color, and a background tint in any color for dark and light mode
 - **Force dark mode**: makes every website dark, without flashing
 - **Protected video and music** (DRM) through Google's Widevine, which
   downloads by itself on first launch

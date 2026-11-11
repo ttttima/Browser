@@ -1,5 +1,6 @@
 import './index.css';
 import { pageShown } from './ui-pages';
+import './ui-sidebar';
 import { icon } from './ui-common';
 import {
   attachSuggestions,
@@ -9,6 +10,9 @@ import {
 import {
   ACCENT_PRESETS,
   ACTIONS,
+  TINT_AMOUNT,
+  activeTint,
+  mixHex,
   MOUSE_BUTTONS,
   bindingLabel,
   defaultBindings,
@@ -634,6 +638,19 @@ const accentSwatches = $<HTMLDivElement>('#accent-swatches');
 const accentCustom = $<HTMLLabelElement>('.accent-custom');
 const accentCustomInput = $<HTMLInputElement>('#accent-custom-input');
 
+/**
+ * A color token as #rrggbb, or null. The production build shortens colors
+ * (#ffffff becomes #fff), so short ones are expanded.
+ */
+function fullHex(value: string) {
+  const color = value.trim().toLowerCase();
+  if (/^#[0-9a-f]{6}$/.test(color)) return color;
+  if (/^#[0-9a-f]{3}$/.test(color)) {
+    return `#${[...color.slice(1)].map((c) => c + c).join('')}`;
+  }
+  return null;
+}
+
 function hexToRgb(hex: string) {
   const value = parseInt(hex.slice(1), 16);
   return [(value >> 16) & 255, (value >> 8) & 255, value & 255];
@@ -660,6 +677,9 @@ function applyAccent(hex: string) {
   );
   style.setProperty('--accent-soft', `rgba(${r}, ${g}, ${b}, 0.18)`);
   style.setProperty('--on-accent', luminance > 0.6 ? '#111318' : '#ffffff');
+
+  colors.accentColor = hex;
+  applyBackground();
 
   accentCustomInput.value = hex;
   const isPreset = ACCENT_PRESETS.some((preset) => preset.color === hex);
@@ -696,6 +716,111 @@ accentCustomInput.addEventListener('change', () =>
   chooseAccent(accentCustomInput.value),
 );
 
+// ---- background tint
+
+/** What the UI colors depend on, kept current for live previews. */
+const colors: Pick<Settings, 'theme' | 'accentColor' | 'backgroundTint'> = {
+  theme: 'dark',
+  accentColor: ACCENT_PRESETS[0].color,
+  backgroundTint: '',
+};
+
+/** Surfaces the tint is blended into (lines and controls too). */
+const TINTED_TOKENS = [
+  '--bg',
+  '--panel',
+  '--border',
+  '--hover',
+  '--input-bg',
+  '--input-border',
+  '--chip',
+  '--spinner-track',
+];
+
+const tintRow = $<HTMLDivElement>('#tint-row');
+const tintNote = $<HTMLElement>('#tint-note');
+const tintSwatches = $<HTMLDivElement>('#tint-swatches');
+const tintCustom = $<HTMLLabelElement>('#tint-custom');
+const tintCustomInput = $<HTMLInputElement>('#tint-custom-input');
+
+/**
+ * Blends the tint into the theme's own colors (read from the stylesheet,
+ * so index.css stays the one place they're defined).
+ */
+function applyBackground() {
+  const style = document.documentElement.style;
+  for (const token of TINTED_TOKENS) style.removeProperty(token);
+  const tint = activeTint(colors);
+  if (tint) {
+    const computed = getComputedStyle(document.documentElement);
+    for (const token of TINTED_TOKENS) {
+      const base = fullHex(computed.getPropertyValue(token));
+      if (base) {
+        style.setProperty(token, mixHex(base, tint, TINT_AMOUNT[colors.theme]));
+      }
+    }
+  }
+  updateDither();
+
+  const oled = colors.theme === 'oled';
+  tintRow.classList.toggle('disabled', oled);
+  tintNote.textContent = oled ? 'Off in OLED dark' : 'Dark and light mode';
+  for (const control of tintRow.querySelectorAll<
+    HTMLButtonElement | HTMLInputElement
+  >('button, input')) {
+    control.disabled = oled;
+  }
+  const choice = colors.backgroundTint;
+  const isPreset = [
+    '',
+    'accent',
+    ...ACCENT_PRESETS.map((p) => p.color),
+  ].includes(choice);
+  tintCustom.classList.toggle('selected', !isPreset);
+  if (!isPreset) {
+    tintCustom.style.setProperty('--tint-custom', choice);
+    tintCustomInput.value = choice;
+  }
+  for (const swatch of tintSwatches.querySelectorAll<HTMLElement>(
+    '.accent-swatch',
+  )) {
+    swatch.classList.toggle('selected', swatch.dataset.tint === choice);
+  }
+}
+
+function chooseTint(value: string) {
+  colors.backgroundTint = value;
+  applyBackground();
+  window.browser.updateSettings({ backgroundTint: value });
+}
+
+for (const option of [
+  { tint: '', name: 'None', extra: 'tint-none' },
+  { tint: 'accent', name: 'Same as accent', extra: 'tint-accent' },
+  ...ACCENT_PRESETS.map((preset) => ({
+    tint: preset.color,
+    name: preset.name,
+    extra: '',
+  })),
+]) {
+  const swatch = document.createElement('button');
+  swatch.className = `accent-swatch ${option.extra}`.trim();
+  swatch.title = option.name;
+  swatch.ariaLabel = `${option.name} background`;
+  swatch.dataset.tint = option.tint;
+  if (option.tint.startsWith('#')) swatch.style.background = option.tint;
+  swatch.addEventListener('click', () => chooseTint(option.tint));
+  tintSwatches.append(swatch);
+}
+
+tintCustomInput.addEventListener('input', () => {
+  colors.backgroundTint = tintCustomInput.value;
+  applyBackground();
+});
+tintCustomInput.addEventListener('change', () =>
+  chooseTint(tintCustomInput.value),
+);
+
 // ---- dithering
 
 /**
@@ -707,14 +832,12 @@ accentCustomInput.addEventListener('change', () =>
 let ditherFor = '';
 
 function updateDither() {
-  const panel = getComputedStyle(document.documentElement)
-    .getPropertyValue('--panel')
-    .trim();
-  if (panel === ditherFor) return;
+  const panel = fullHex(
+    getComputedStyle(document.documentElement).getPropertyValue('--panel'),
+  );
+  if (!panel || panel === ditherFor) return;
   ditherFor = panel;
 
-  const match = /^#([0-9a-f]{6})$/i.exec(panel);
-  if (!match) return;
   const [r, g, b] = hexToRgb(panel);
   const base = Math.max(1, Math.min(254, (r + g + b) / 3));
 
@@ -755,7 +878,8 @@ for (const input of themeInputs) {
     if (!input.checked) return;
     // Switch right away so it feels instant, then save.
     document.documentElement.dataset.theme = input.value;
-    updateDither();
+    colors.theme = input.value as Theme;
+    applyBackground();
     window.browser.updateSettings({ theme: input.value as Theme });
   });
 }
@@ -1291,7 +1415,9 @@ $('#reset-bindings').addEventListener('click', () => {
 
 window.browser.onSettingsChanged((settings) => {
   document.documentElement.dataset.theme = settings.theme;
-  updateDither();
+  colors.theme = settings.theme;
+  colors.backgroundTint = settings.backgroundTint;
+  // Also applies the background tint.
   applyAccent(settings.accentColor);
   for (const input of themeInputs) {
     input.checked = input.value === settings.theme;

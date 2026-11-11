@@ -38,6 +38,7 @@
           </svg>
           <span class="label">New tab</span>
         </button>
+        <ul id="bookmark-list" aria-label="Bookmarks" hidden></ul>
         <ul id="tabs" role="tablist" aria-label="Tabs"></ul>
       </div>
 
@@ -411,6 +412,24 @@
                     <div id="accent-swatches" class="accent-swatches"></div>
                     <label class="accent-custom" title="Pick any color">
                       <input id="accent-custom-input" type="color" />
+                      <span class="accent-custom-preview"></span>
+                      Custom
+                    </label>
+                  </div>
+                </div>
+                <div id="tint-row" class="setting-row">
+                  <span>
+                    <strong>Background tint</strong>
+                    <small id="tint-note">Dark and light mode</small>
+                  </span>
+                  <div class="accent-picker">
+                    <div id="tint-swatches" class="accent-swatches"></div>
+                    <label
+                      id="tint-custom"
+                      class="accent-custom"
+                      title="Pick any color"
+                    >
+                      <input id="tint-custom-input" type="color" />
                       <span class="accent-custom-preview"></span>
                       Custom
                     </label>

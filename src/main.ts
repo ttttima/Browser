@@ -27,6 +27,7 @@ import {
   isBookmarked,
   removeBookmark,
   renameBookmark,
+  setBookmarkFavicon,
   toggleBookmark,
 } from './bookmarks';
 import { showEditMenu, showPageMenu } from './context-menu';
@@ -90,7 +91,7 @@ import {
 import {
   DEFAULT_SETTINGS,
   SEARCH_ENGINES,
-  THEME_BACKGROUNDS,
+  themeBackground,
   THEMES,
   type BrowserState,
   type PageEdges,
@@ -313,6 +314,12 @@ function sanitizeSettings(value: Partial<Settings>): Settings {
       /^#[0-9a-f]{6}$/i.test(value.accentColor)
         ? value.accentColor.toLowerCase()
         : DEFAULT_SETTINGS.accentColor,
+    backgroundTint:
+      value.backgroundTint === 'accent' ||
+      (typeof value.backgroundTint === 'string' &&
+        /^#[0-9a-f]{6}$/i.test(value.backgroundTint))
+        ? (value.backgroundTint as string).toLowerCase()
+        : '',
     windowAnimations: value.windowAnimations !== false,
     bindingsVersion: Number.isInteger(value.bindingsVersion)
       ? Number(value.bindingsVersion)
@@ -331,7 +338,7 @@ function applyTheme() {
   // Websites that support dark mode (prefers-color-scheme) follow our theme.
   nativeTheme.themeSource = settings.theme === 'light' ? 'light' : 'dark';
   if (window && !window.isDestroyed()) {
-    window.setBackgroundColor(THEME_BACKGROUNDS[settings.theme]);
+    window.setBackgroundColor(themeBackground(settings));
   }
   for (const tab of tabs) {
     if (pageOf(tab)) {
@@ -917,7 +924,7 @@ function tabBackground() {
   // Shown for a moment before a page paints. Match the color mode so new
   // pages never flash white in dark / OLED mode.
   if (settings.forceDark) return '#0a0a0a';
-  return THEME_BACKGROUNDS[settings.theme];
+  return themeBackground(settings);
 }
 
 /**
@@ -1066,6 +1073,10 @@ function wireTab(tab: Tab) {
   contents.on('page-favicon-updated', (_event, favicons) => {
     tab.favicon =
       favicons.find((icon) => /^(https?:|data:image\/)/i.test(icon)) ?? null;
+    // Bookmarks show the site's icon in the sidebar. Not from private tabs.
+    if (tab.favicon && !tab.isPrivate) {
+      setBookmarkFavicon(shownUrl(tab), tab.favicon);
+    }
     sendTabs();
   });
 
@@ -1267,8 +1278,47 @@ function openFind() {
 function toggleBookmarkFor(tab: Tab | null) {
   const url = tab ? shownUrl(tab) : '';
   if (!tab || !/^(https?|file):/i.test(url)) return;
-  toggleBookmark(url, tabTitle(tab));
+  toggleBookmark(url, tabTitle(tab), tab.isPrivate ? null : tab.favicon);
   sendState();
+}
+
+/**
+ * A bookmark in the sidebar was clicked: go to its tab if it's open,
+ * otherwise open it in the new tab page you're on, or in a new tab.
+ */
+function openBookmark(id: string, inNewTab: boolean) {
+  const bookmark = getBookmarks().find((b) => b.id === id);
+  if (!bookmark) return;
+  if (!inNewTab) {
+    const open = tabs.find((t) => !t.isPrivate && shownUrl(t) === bookmark.url);
+    if (open) {
+      activateTab(open.id);
+      return;
+    }
+    const active = activeTab();
+    if (active?.isNewTab && !active.isPrivate) {
+      setSettingsOpen(false);
+      navigate(bookmark.url);
+      return;
+    }
+  }
+  createTab(bookmark.url, { activate: !inNewTab, nextToActive: inNewTab });
+}
+
+function showBookmarkMenu(id: string) {
+  const bookmark = getBookmarks().find((b) => b.id === id);
+  if (!bookmark || !window) return;
+  Menu.buildFromTemplate([
+    { label: 'Open', click: () => openBookmark(id, false) },
+    { label: 'Open in new tab', click: () => openBookmark(id, true) },
+    {
+      label: 'Open in private tab',
+      click: () => createTab(bookmark.url, { isPrivate: true }),
+    },
+    { type: 'separator' },
+    { label: 'Remove bookmark', click: () => removeBookmark(id) },
+    { label: 'All bookmarks', click: () => showPanelPage('bookmarks') },
+  ]).popup({ window });
 }
 
 function printPage(contents: WebContents | null) {
@@ -1973,7 +2023,7 @@ async function capture(contents: WebContents): Promise<NativeImage | null> {
 
 function animationLook() {
   return {
-    background: THEME_BACKGROUNDS[settings.theme],
+    background: themeBackground(settings),
     accent: settings.accentColor,
   };
 }
@@ -2066,7 +2116,7 @@ function createWindow(urls: string[] = []) {
     ...(fs.existsSync(path.join(app.getAppPath(), 'assets', 'icon.png'))
       ? { icon: path.join(app.getAppPath(), 'assets', 'icon.png') }
       : {}),
-    backgroundColor: THEME_BACKGROUNDS[settings.theme],
+    backgroundColor: themeBackground(settings),
     // Shown once the UI has painted, with the opening animation.
     show: false,
     autoHideMenuBar: true,
@@ -2303,12 +2353,12 @@ function setUpIpc() {
       return;
     }
     const before = settings.sidebarCollapsed;
-    const beforeTheme = settings.theme;
+    const beforeBackground = themeBackground(settings);
     const beforeDark = settings.forceDark;
     settings = sanitizeSettings({ ...settings, ...changes });
     saveSettings();
     sendSettings();
-    if (settings.theme !== beforeTheme) applyTheme();
+    if (themeBackground(settings) !== beforeBackground) applyTheme();
     if (settings.forceDark !== beforeDark) updateForcedDarkAll();
     if (animationsOn()) prepareOverlay();
     else destroyOverlay();
@@ -2449,6 +2499,11 @@ function setUpIpc() {
   // Bookmarks.
   handle('terra:bookmarks', () => getBookmarks());
   on('terra:bookmark-toggle', () => toggleBookmarkFor(activeTab()));
+  on('terra:bookmark-open', (id, inNewTab) => {
+    if (isText(id, 64)) openBookmark(id, inNewTab === true);
+  });
+  on('terra:bookmark-menu', (id) => isText(id, 64) && showBookmarkMenu(id));
+  on('terra:open-bookmarks', () => showPanelPage('bookmarks'));
   on('terra:bookmark-remove', (id) => isText(id, 64) && removeBookmark(id));
   on('terra:bookmark-rename', (id, title) => {
     if (isText(id, 64) && isText(title, 1024)) renameBookmark(id, title);

@@ -232,7 +232,12 @@ export interface Bookmark {
   title: string;
   /** When it was added, in ms since 1970. */
   time: number;
+  /** The site's icon, picked up when the page is open in a tab. */
+  favicon?: string;
 }
+
+/** How many bookmarks the sidebar shows; the rest are on the Bookmarks page. */
+export const SIDEBAR_BOOKMARKS = 8;
 
 // ---------------------------------------------------------------- passwords
 
@@ -322,6 +327,53 @@ export const THEME_BACKGROUNDS: Record<Theme, string> = {
   oled: '#000000',
 };
 
+/**
+ * How much of the background tint goes into each surface. OLED dark stays
+ * pure black, so it is never tinted.
+ */
+export const TINT_AMOUNT: Record<Theme, number> = {
+  dark: 0.12,
+  light: 0.08,
+  oled: 0,
+};
+
+/** Blends `color` into `base` (both #rrggbb) by `amount` (0-1). */
+export function mixHex(base: string, color: string, amount: number) {
+  const parse = (hex: string) => {
+    const value = parseInt(hex.slice(1), 16);
+    return [(value >> 16) & 255, (value >> 8) & 255, value & 255];
+  };
+  const a = parse(base);
+  const b = parse(color);
+  return `#${a
+    .map((channel, i) =>
+      Math.round(channel + (b[i] - channel) * amount)
+        .toString(16)
+        .padStart(2, '0'),
+    )
+    .join('')}`;
+}
+
+/** The tint color in use, or null (none, or OLED dark). */
+export function activeTint(
+  settings: Pick<Settings, 'theme' | 'backgroundTint' | 'accentColor'>,
+) {
+  if (TINT_AMOUNT[settings.theme] === 0 || !settings.backgroundTint)
+    return null;
+  return settings.backgroundTint === 'accent'
+    ? settings.accentColor
+    : settings.backgroundTint;
+}
+
+/** The window background (--bg) for these settings. */
+export function themeBackground(
+  settings: Pick<Settings, 'theme' | 'backgroundTint' | 'accentColor'>,
+) {
+  const base = THEME_BACKGROUNDS[settings.theme];
+  const tint = activeTint(settings);
+  return tint ? mixHex(base, tint, TINT_AMOUNT[settings.theme]) : base;
+}
+
 /** Ready-made accent colors shown as swatches in settings. */
 export const ACCENT_PRESETS = [
   { name: 'Blue', color: '#4f7cff' },
@@ -357,6 +409,11 @@ export interface Settings {
   theme: Theme;
   /** Main accent color as #rrggbb. */
   accentColor: string;
+  /**
+   * Color blended into the backgrounds in dark and light mode: '' for none,
+   * 'accent' to follow the accent color, or #rrggbb.
+   */
+  backgroundTint: string;
   /** Zoom and fade the window when it opens and closes. */
   windowAnimations: boolean;
   /** See BINDINGS_VERSION. */
@@ -406,6 +463,7 @@ export const DEFAULT_SETTINGS: Settings = {
   customBindings: [],
   theme: 'dark',
   accentColor: '#4f7cff',
+  backgroundTint: '',
   windowAnimations: true,
   bindingsVersion: BINDINGS_VERSION,
   startup: 'restore',
