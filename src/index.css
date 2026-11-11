@@ -1455,11 +1455,6 @@ body.smooth-dividers .pop-group-end::after {
   opacity: 1;
 }
 
-/* Window in the background: grey lights. */
-body.window-inactive .window-controls:not(:hover) .light {
-  background: var(--chip);
-}
-
 /* Settings: lights at the right end of the title bar, outside the centered
    column so the title stays centered. */
 .settings-main .bar {

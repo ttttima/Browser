@@ -2266,7 +2266,7 @@ function createWindow(urls: string[] = []) {
 
   win.on('resize', layout);
   // The UI page loses focus whenever you click into a website, so tell it
-  // about the real window focus (for the grey traffic lights).
+  // about the real window focus (to refresh the default browser status).
   win.on('focus', () => sendToUi('browser:window-focus', true));
   win.on('blur', () => sendToUi('browser:window-focus', false));
   win.on('maximize', layout);

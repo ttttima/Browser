@@ -205,10 +205,9 @@ for (const button of document.querySelectorAll<HTMLButtonElement>('.light')) {
     ),
   );
 }
-// Like macOS: grey lights while the window is in the background.
+// Back from Windows Settings: show whether Terra became the default. (The
+// window buttons keep their colors when the window is in the background.)
 window.browser.onWindowFocus((focused) => {
-  document.body.classList.toggle('window-inactive', !focused);
-  // Back from Windows Settings: show whether Terra became the default.
   if (focused) void updateDefaultBrowser();
 });
 
