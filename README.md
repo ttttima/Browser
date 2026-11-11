@@ -41,7 +41,9 @@ above doesn't trigger this.
 
 ## Update
 
-Nya doesn't update by itself yet. Update the same way you installed it:
+From 0.6.0 on, Nya updates itself: when a new version is out it asks
+**Restart to update**, and you can also check in **Settings → Features**.
+You can still update by hand the same way you installed it:
 
 - **PowerShell line:** paste the same line again. It closes Nya, puts the
   newest version in place and starts it.
