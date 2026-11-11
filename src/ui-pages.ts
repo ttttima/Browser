@@ -16,7 +16,7 @@ import {
   hostOf,
   letterBadge,
   listText,
-  nya,
+  terra,
 } from './ui-common';
 import { setSearchSuggestions } from './ui-toolbar';
 
@@ -84,21 +84,21 @@ let readyVersion: string | null = null;
 
 function showReady(version: string) {
   readyVersion = version;
-  updateStatus.textContent = `Nya ${version} is ready to install`;
+  updateStatus.textContent = `Terra ${version} is ready to install`;
   updateButton.textContent = 'Restart to update';
   updateButton.disabled = false;
 }
 
 async function loadUpdates() {
-  const status = await nya.invoke<{
+  const status = await terra.invoke<{
     supported: boolean;
     current: string;
     ready: string | null;
-  }>('nya:update-status');
+  }>('terra:update-status');
   if (status.ready) return showReady(status.ready);
   updateStatus.textContent = status.supported
-    ? `You have Nya ${status.current}`
-    : `Nya ${status.current}. Updates work in the installed app.`;
+    ? `You have Terra ${status.current}`
+    : `Terra ${status.current}. Updates work in the installed app.`;
   updateButton.textContent = 'Check now';
   updateButton.disabled = !status.supported;
   autoUpdate.disabled = !status.supported;
@@ -106,19 +106,19 @@ async function loadUpdates() {
 
 updateButton.addEventListener('click', async () => {
   if (readyVersion) {
-    nya.send('nya:update-install');
+    terra.send('terra:update-install');
     return;
   }
   updateButton.disabled = true;
   updateStatus.textContent = 'Checking for a new version…';
-  const version = await nya.invoke<string | null>('nya:update-check');
+  const version = await terra.invoke<string | null>('terra:update-check');
   if (version) showReady(version);
   else {
-    updateStatus.textContent = 'Nya is up to date';
+    updateStatus.textContent = 'Terra is up to date';
     updateButton.disabled = false;
   }
 });
-nya.on<string>('nya:update-ready', showReady);
+terra.on<string>('terra:update-ready', showReady);
 
 // ---------------------------------------------------------------- privacy
 
@@ -139,7 +139,7 @@ function chip(label: string, blocked: boolean, onRemove: () => void) {
 }
 
 async function loadSites() {
-  const sites = await nya.invoke<SiteInfo[]>('nya:sites');
+  const sites = await terra.invoke<SiteInfo[]>('terra:sites');
   if (!sites.length) {
     sitesList.replaceChildren(
       emptyState('No website has asked for anything yet'),
@@ -161,28 +161,33 @@ async function loadSites() {
         const label = `${PERMISSION_LABELS[name] ?? name} · ${decision === 'allow' ? 'Allowed' : 'Blocked'}`;
         chips.append(
           chip(label, decision === 'block', () =>
-            nya.send('nya:site-reset', site.origin, name),
+            terra.send('terra:site-reset', site.origin, name),
           ),
         );
       }
       if (site.allowAds) {
         chips.append(
           chip('Ads allowed', false, () =>
-            nya.send('nya:site-set', site.origin, 'allowAds', false),
+            terra.send('terra:site-set', site.origin, 'allowAds', false),
           ),
         );
       }
       if (site.neverSavePasswords) {
         chips.append(
           chip('Never save passwords', true, () =>
-            nya.send('nya:site-set', site.origin, 'neverSavePasswords', false),
+            terra.send(
+              'terra:site-set',
+              site.origin,
+              'neverSavePasswords',
+              false,
+            ),
           ),
         );
       }
       if (site.zoom !== 0) {
         chips.append(
           chip(`Zoom ${Math.round(1.2 ** site.zoom * 100)}%`, false, () =>
-            nya.send('nya:site-set', site.origin, 'zoom', 0),
+            terra.send('terra:site-set', site.origin, 'zoom', 0),
           ),
         );
       }
@@ -191,7 +196,7 @@ async function loadSites() {
         letterBadge(hostOf(site.origin)),
         text,
         actionButton('remove', 'Forget this site', () =>
-          nya.send('nya:site-reset', site.origin),
+          terra.send('terra:site-reset', site.origin),
         ),
       );
       return row;
@@ -199,7 +204,7 @@ async function loadSites() {
   );
 }
 
-nya.on('nya:sites-changed', () => {
+terra.on('terra:sites-changed', () => {
   if (currentPage === 'privacy') void loadSites();
 });
 
@@ -210,7 +215,7 @@ const bookmarksSearch = $<HTMLInputElement>('#bookmarks-search');
 let bookmarks: Bookmark[] = [];
 
 async function loadBookmarks() {
-  bookmarks = await nya.invoke<Bookmark[]>('nya:bookmarks');
+  bookmarks = await terra.invoke<Bookmark[]>('terra:bookmarks');
   renderBookmarks();
 }
 
@@ -222,7 +227,7 @@ function renameRow(row: HTMLElement, bookmark: Bookmark) {
   field.ariaLabel = 'Bookmark name';
   const finish = (save: boolean) => {
     if (save && field.value.trim()) {
-      nya.send('nya:bookmark-rename', bookmark.id, field.value);
+      terra.send('terra:bookmark-rename', bookmark.id, field.value);
     }
     renderBookmarks();
   };
@@ -268,7 +273,7 @@ function renderBookmarks() {
       actions.append(
         actionButton('pencil', 'Rename', () => renameRow(row, bookmark)),
         actionButton('remove', 'Remove bookmark', () =>
-          nya.send('nya:bookmark-remove', bookmark.id),
+          terra.send('terra:bookmark-remove', bookmark.id),
         ),
       );
       row.append(
@@ -276,7 +281,7 @@ function renderBookmarks() {
         listText(bookmark.title || hostOf(bookmark.url), hostOf(bookmark.url)),
         actions,
       );
-      const open = () => nya.send('nya:open-links', [bookmark.url]);
+      const open = () => terra.send('terra:open-links', [bookmark.url]);
       row.addEventListener('click', open);
       row.addEventListener('keydown', (event) => {
         if (event.key === 'Enter') open();
@@ -287,7 +292,7 @@ function renderBookmarks() {
 }
 
 bookmarksSearch.addEventListener('input', renderBookmarks);
-nya.on('nya:bookmarks-changed', () => {
+terra.on('terra:bookmarks-changed', () => {
   if (currentPage === 'bookmarks') void loadBookmarks();
 });
 
@@ -298,8 +303,9 @@ const importButton = $<HTMLButtonElement>('#import-button');
 const importStatus = $<HTMLElement>('#import-status');
 
 async function loadImportSources() {
-  const sources =
-    await nya.invoke<{ id: string; name: string }[]>('nya:import-sources');
+  const sources = await terra.invoke<{ id: string; name: string }[]>(
+    'terra:import-sources',
+  );
   importSource.replaceChildren(
     ...sources.map((source) => new Option(source.name, source.id)),
   );
@@ -313,10 +319,10 @@ importButton.addEventListener('click', async () => {
   const name = importSource.selectedOptions[0]?.text ?? '';
   importButton.disabled = true;
   importStatus.textContent = `Importing from ${name}…`;
-  const result = await nya.invoke<{
+  const result = await terra.invoke<{
     bookmarks: number;
     history: number;
-  } | null>('nya:import', importSource.value);
+  } | null>('terra:import', importSource.value);
   importButton.disabled = false;
   importStatus.textContent = result
     ? `Added ${result.bookmarks.toLocaleString()} bookmarks and ${result.history.toLocaleString()} history entries from ${name}`
@@ -333,9 +339,10 @@ let logins: SavedLogin[] = [];
 let available = true;
 
 async function loadLogins() {
-  const result = await nya.invoke<{ available: boolean; logins: SavedLogin[] }>(
-    'nya:logins',
-  );
+  const result = await terra.invoke<{
+    available: boolean;
+    logins: SavedLogin[];
+  }>('terra:logins');
   available = result.available;
   logins = result.logins;
   passwordsImport.disabled = !available;
@@ -363,7 +370,7 @@ function renderLogins() {
       emptyState(
         query
           ? 'Nothing matches your search'
-          : 'No saved passwords. Nya offers to save them when you sign in.',
+          : 'No saved passwords. Terra offers to save them when you sign in.',
       ),
     );
     return;
@@ -387,7 +394,8 @@ function renderLogins() {
           return;
         }
         secret.textContent =
-          (await nya.invoke<string | null>('nya:login-reveal', login.id)) ?? '';
+          (await terra.invoke<string | null>('terra:login-reveal', login.id)) ??
+          '';
         secret.hidden = false;
       });
       const actions = document.createElement('span');
@@ -395,8 +403,8 @@ function renderLogins() {
       actions.append(
         reveal,
         actionButton('copy', 'Copy password', async () => {
-          const password = await nya.invoke<string | null>(
-            'nya:login-reveal',
+          const password = await terra.invoke<string | null>(
+            'terra:login-reveal',
             login.id,
           );
           if (password) await navigator.clipboard.writeText(password);
@@ -405,7 +413,7 @@ function renderLogins() {
           if (
             confirm(`Delete the saved password for ${hostOf(login.origin)}?`)
           ) {
-            nya.send('nya:login-delete', login.id);
+            terra.send('terra:login-delete', login.id);
           }
         }),
       );
@@ -417,7 +425,7 @@ function renderLogins() {
 
 passwordsSearch.addEventListener('input', renderLogins);
 passwordsImport.addEventListener('click', async () => {
-  const count = await nya.invoke<number | null>('nya:logins-import');
+  const count = await terra.invoke<number | null>('terra:logins-import');
   if (count === null) return;
   passwordsTitle.textContent =
     count > 0
@@ -425,6 +433,6 @@ passwordsImport.addEventListener('click', async () => {
       : 'No passwords found in that file';
   setTimeout(() => void loadLogins(), 2500);
 });
-nya.on('nya:logins-changed', () => {
+terra.on('terra:logins-changed', () => {
   if (currentPage === 'passwords') void loadLogins();
 });

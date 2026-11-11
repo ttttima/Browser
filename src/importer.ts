@@ -1,5 +1,5 @@
 // Imports bookmarks and history from other browsers on this computer.
-// Everything is read from their local files and copied into Nya's own files;
+// Everything is read from their local files and copied into Terra's own files;
 // nothing goes over the network. Their databases are copied to a temporary
 // folder first, so a browser that is still open isn't disturbed.
 import fs from 'node:fs';
@@ -92,7 +92,7 @@ function openCopy(
   file: string,
 ): { db: DatabaseSync; cleanup: () => void } | null {
   if (!fs.existsSync(file)) return null;
-  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'nya-import-'));
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'terra-import-'));
   const copy = path.join(temp, path.basename(file));
   try {
     fs.copyFileSync(file, copy);

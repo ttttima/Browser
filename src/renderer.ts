@@ -202,7 +202,7 @@ for (const button of document.querySelectorAll<HTMLButtonElement>('.light')) {
 // Like macOS: grey lights while the window is in the background.
 window.browser.onWindowFocus((focused) => {
   document.body.classList.toggle('window-inactive', !focused);
-  // Back from Windows Settings: show whether Nya became the default.
+  // Back from Windows Settings: show whether Terra became the default.
   if (focused) void updateDefaultBrowser();
 });
 
@@ -221,8 +221,8 @@ async function updateDefaultBrowser() {
   }
   defaultBrowserRow.hidden = !state.supported;
   defaultBrowserText.textContent = state.isDefault
-    ? 'Nya opens links from other apps'
-    : 'Open links from other apps in Nya';
+    ? 'Terra opens links from other apps'
+    : 'Open links from other apps in Terra';
   makeDefault.disabled = state.isDefault;
   makeDefault.textContent = state.isDefault ? 'Default' : 'Make default';
 }
@@ -269,7 +269,7 @@ function createTabElement(id: number) {
   audio.hidden = true;
   audio.addEventListener('click', (event) => {
     event.stopPropagation();
-    window.nya.send('nya:tab-mute', id);
+    window.terra.send('terra:tab-mute', id);
   });
 
   const close = document.createElement('button');
@@ -284,7 +284,7 @@ function createTabElement(id: number) {
   item.append(icon, title, audio, close);
   item.addEventListener('contextmenu', (event) => {
     event.preventDefault();
-    window.nya.send('nya:tab-menu', id);
+    window.terra.send('terra:tab-menu', id);
   });
 
   item.addEventListener('click', () => window.browser.activateTab(id));

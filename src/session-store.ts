@@ -1,4 +1,4 @@
-// The open tabs, saved locally (session.json) so Nya can reopen them after a
+// The open tabs, saved locally (session.json) so Terra can reopen them after a
 // restart or crash. Private tabs are never saved.
 import { isText, readJson, saveSoon } from './library';
 

@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="assets/icon.png" width="96" alt="Nya logo" />
+  <img src="assets/icon.png" width="96" alt="Terra logo" />
 </p>
 
-<h1 align="center">Nya</h1>
+<h1 align="center">Terra</h1>
 
 <p align="center">
   A clean, minimal web browser with vertical tabs.
@@ -15,7 +15,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/screenshot.png" width="860" alt="Nya with vertical tabs on the left and a centered search bar" />
+  <img src="docs/screenshot.png" width="860" alt="Terra with vertical tabs on the left and a centered search bar" />
 </p>
 
 ## Install
@@ -26,40 +26,47 @@
 irm https://raw.githubusercontent.com/ttttima/Browser/main/install.ps1 | iex
 ```
 
-It downloads the newest Nya, installs it just for you (no administrator
+It downloads the newest Terra, installs it just for you (no administrator
 rights), adds Start menu and desktop shortcuts, and starts it.
 
 **Or download it** from the [Releases](https://github.com/ttttima/Browser/releases)
 page:
 
-- `Nya-x.y.z-Setup.exe`: installer
-- `Nya-x.y.z-portable.zip`: no install, unzip and run `Nya.exe`
+- `Terra-x.y.z-Setup.exe`: installer
+- `Terra-x.y.z-portable-win.zip`: no install, unzip and run `Terra.exe`
 
-Nya isn't code-signed yet, so Windows may say _"Windows protected your PC"_
+Terra isn't code-signed yet, so Windows may say _"Windows protected your PC"_
 for downloaded files. Click **More info → Run anyway**. The PowerShell line
 above doesn't trigger this.
 
 ## Update
 
-From 0.6.0 on, Nya updates itself: when a new version is out it asks
-**Restart to update**, and you can also check in **Settings → Features**.
-You can still update by hand the same way you installed it:
+Terra updates itself: when a new version is out it asks **Restart to
+update**, and you can also check in **Settings → Features**. You can still
+update by hand the same way you installed it:
 
-- **PowerShell line:** paste the same line again. It closes Nya, puts the
+- **PowerShell line:** paste the same line again. It closes Terra, puts the
   newest version in place and starts it.
 
   ```powershell
   irm https://raw.githubusercontent.com/ttttima/Browser/main/install.ps1 | iex
   ```
 
-- **Setup.exe:** download the newest `Nya-x.y.z-Setup.exe` from
+- **Setup.exe:** download the newest `Terra-x.y.z-Setup.exe` from
   [Releases](https://github.com/ttttima/Browser/releases) and run it. It
   replaces the old version.
-- **Portable zip:** download the newest zip, close Nya and unzip it over the
+- **Portable zip:** download the newest zip, close Terra and unzip it over the
   old folder.
 
 Your settings, history and downloads list are kept: they live in
-`%APPDATA%\Nya`, not in the app folder.
+`%APPDATA%\Terra`, not in the app folder.
+
+**Coming from Nya?** Terra used to be called Nya. Installed with Setup.exe,
+Nya updates to Terra by itself. If you used the PowerShell line or the zip,
+run the PowerShell line above once. Either way, Terra brings over your tabs,
+bookmarks, passwords and settings on its first start and then removes the old
+Nya app. The old data in `%APPDATA%\Nya` is left alone; delete it once
+you're happy.
 
 ## Features
 
@@ -89,7 +96,7 @@ Your settings, history and downloads list are kept: they live in
   downloads by itself on first launch
 - **Can be your default browser**: Settings → Navigation → Make default
 - **Smooth dividers**: soft gradients between areas instead of hard lines
-- **Window animations**: Nya rises into place in 3D with a glow of your
+- **Window animations**: Terra rises into place in 3D with a glow of your
   accent color when it opens, and tips back and falls away when it closes
 - **Your own shortcuts**: bind any action to a key or mouse button, and add
   shortcuts that open your favorite sites
@@ -98,13 +105,13 @@ Your settings, history and downloads list are kept: they live in
 - **No admin rights**: installs and runs just for your user
 
 <p align="center">
-  <img src="docs/settings.png" width="860" alt="Nya settings: color mode, accent color and layout options" />
+  <img src="docs/settings.png" width="860" alt="Terra settings: color mode, accent color and layout options" />
 </p>
 
 ## Uninstall
 
-Open Windows **Settings → Apps → Installed apps**, find **Nya** and choose
-**Uninstall**. Your settings and history stay in `%APPDATA%\Nya`; delete that
+Open Windows **Settings → Apps → Installed apps**, find **Terra** and choose
+**Uninstall**. Your settings and history stay in `%APPDATA%\Terra`; delete that
 folder too if you want them gone.
 
 ## Build from source
@@ -117,7 +124,7 @@ npm start          # run in development
 npm run make       # build the installer and zip into out/make
 ```
 
-Nya uses [castLabs Electron](https://github.com/castlabs/electron-releases),
+Terra uses [castLabs Electron](https://github.com/castlabs/electron-releases),
 which adds Widevine. Netflix and a few other services also need the app to be
 VMP-signed. The build does that automatically when castLabs' free signing
 tool is set up:

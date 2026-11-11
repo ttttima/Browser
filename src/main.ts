@@ -72,6 +72,7 @@ import {
   registerAsBrowser,
   unregisterAsBrowser,
 } from './default-browser';
+import { copyNyaData, removeNyaApp } from './from-nya';
 import {
   clearDownloads,
   clearHistory,
@@ -131,7 +132,11 @@ declare const MAIN_WINDOW_VITE_NAME: string;
 if (process.argv.includes('--squirrel-uninstall')) unregisterAsBrowser();
 if (started) app.quit();
 
-// One running Nya: links opened from other apps start a second copy, which
+// Terra used to be called Nya: bring Nya's data over on the first start,
+// before anything in Terra's own folder is opened.
+const fromNya = started ? null : copyNyaData();
+
+// One running Terra: links opened from other apps start a second copy, which
 // hands them to the first (see 'second-instance') and quits. Development
 // copies skip this so they can run next to the installed app.
 const isFirstInstance =
@@ -151,7 +156,7 @@ const TOOLBAR_HEIGHT = 48;
 const SIDEBAR_WIDTH = 240;
 const SIDEBAR_COLLAPSED_WIDTH = 48;
 
-const APP_NAME = 'Nya';
+const APP_NAME = 'Terra';
 const MAX_CLOSED_TABS = 25;
 
 // Permissions websites get without asking. Others are asked about in the
@@ -168,7 +173,7 @@ const AUTO_ALLOWED = new Set([
 
 /** Height of the question bar under the toolbar (= --control-lg). */
 const NOTICE_HEIGHT = 48;
-const PRIVATE_PARTITION = 'nya-private';
+const PRIVATE_PARTITION = 'terra-private';
 
 interface Tab {
   id: number;
@@ -216,8 +221,8 @@ const settingsFile = () => path.join(app.getPath('userData'), 'settings.json');
 let settings: Settings = { ...DEFAULT_SETTINGS };
 
 /**
- * Settings from before the app was renamed to Nya lived in the old app
- * folder. Copy them over once so nobody loses their setup.
+ * Settings from before the app had a name lived in the old app folder.
+ * Copy them over once so nobody loses their setup.
  */
 function migrateOldSettings() {
   const target = settingsFile();
@@ -254,7 +259,7 @@ function loadSettings() {
 }
 
 /**
- * Settings saved by an older Nya: give every action the user never bound
+ * Settings saved by an older Terra: give every action the user never bound
  * its new default shortcut, unless that key is already used for something.
  */
 function addNewDefaultBindings() {
@@ -679,7 +684,7 @@ function samplePageEdgesSoon() {
 function activateTab(id: number) {
   const tab = findTab(id);
   if (!tab) return;
-  if (activeTabId !== id) sendToUi('nya:find-close', null);
+  if (activeTabId !== id) sendToUi('terra:find-close', null);
   activeTabId = id;
   settingsOpen = false;
   if (tab.lazyUrl) {
@@ -952,7 +957,7 @@ function wireTab(tab: Tab) {
 
   contents.on('found-in-page', (_event, result) => {
     if (!isActive()) return;
-    sendToUi('nya:find-result', {
+    sendToUi('terra:find-result', {
       active: result.activeMatchOrdinal,
       total: result.matches,
     });
@@ -1256,7 +1261,7 @@ function openFind() {
   const tab = activeTab();
   if (!tab || tab.isNewTab || settingsOpen || !pageOf(tab)) return;
   uiContents()?.focus();
-  sendToUi('nya:find-open', null);
+  sendToUi('terra:find-open', null);
 }
 
 function toggleBookmarkFor(tab: Tab | null) {
@@ -1503,7 +1508,7 @@ function visibleNotice(): PendingNotice | null {
 function sendNotice() {
   const notice = visibleNotice();
   sendToUi(
-    'nya:notice',
+    'terra:notice',
     notice
       ? {
           id: notice.id,
@@ -1789,7 +1794,7 @@ function offerToFill(tab: Tab, origin: string) {
     if (!login || !contents || originOf(contents.getURL()) !== origin) return;
     const password = revealPassword(login.id);
     if (password !== null) {
-      contents.send('nya:login-fill', login.username, password);
+      contents.send('terra:login-fill', login.username, password);
     }
   });
 }
@@ -1860,7 +1865,7 @@ function showSiteMenu(x: number, y: number) {
             ? 'Connection is not secure'
             : security === 'local'
               ? 'File on this computer'
-              : 'Nya page',
+              : 'Terra page',
       enabled: false,
     },
   ];
@@ -1900,12 +1905,12 @@ async function lookForUpdate(announce: boolean) {
   const update = await checkForUpdate();
   if (!update) return null;
   readyUpdate = update;
-  sendToUi('nya:update-ready', update.version);
+  sendToUi('terra:update-ready', update.version);
   if (announce) {
     void ask({
       kind: 'update',
       tabId: null,
-      text: `Nya ${update.version} is ready to install.`,
+      text: `Terra ${update.version} is ready to install.`,
       actions: [
         { id: 'restart', label: 'Restart to update' },
         { id: 'later', label: 'Later' },
@@ -1929,7 +1934,7 @@ function linksFromArgs(argv: string[]): string[] {
     .slice(0, 20);
 }
 
-/** Opens links from another app in new tabs and brings Nya to the front. */
+/** Opens links from another app in new tabs and brings Terra to the front. */
 function openLinks(urls: string[]) {
   const win = window;
   if (!win || win.isDestroyed()) {
@@ -2057,7 +2062,7 @@ function createWindow(urls: string[] = []) {
     minHeight: 400,
     title: APP_NAME,
     // Window/taskbar icon while developing. The installed app uses the icon
-    // built into Nya.exe instead (assets/ isn't packaged).
+    // built into Terra.exe instead (assets/ isn't packaged).
     ...(fs.existsSync(path.join(app.getAppPath(), 'assets', 'icon.png'))
       ? { icon: path.join(app.getAppPath(), 'assets', 'icon.png') }
       : {}),
@@ -2131,6 +2136,7 @@ function createWindow(urls: string[] = []) {
     sendSettings();
     sendTabs();
     sendState();
+    sendNotice();
   });
 
   win.on('closed', () => {
@@ -2141,7 +2147,7 @@ function createWindow(urls: string[] = []) {
     for (const tab of closing) {
       pageOf(tab)?.close();
     }
-    // The animation overlay is a window too; without this Nya never quits.
+    // The animation overlay is a window too; without this Terra never quits.
     destroyOverlay();
   });
 
@@ -2325,7 +2331,7 @@ function setUpIpc() {
   ipcMain.on('browser:default-browser-set', (event) => {
     if (fromUi(event.sender)) void openDefaultAppsSettings();
   });
-  // ---- everything below uses "nya:" messages from our UI only
+  // ---- everything below uses "terra:" messages from our UI only
   const on = (channel: string, handler: (...args: unknown[]) => void) =>
     ipcMain.on(channel, (event, ...args) => {
       if (fromUi(event.sender)) handler(...args);
@@ -2337,7 +2343,7 @@ function setUpIpc() {
   const isText = (value: unknown, max = 4096): value is string =>
     typeof value === 'string' && value.length <= max;
 
-  on('nya:notice-answer', (id, action, fields, choice) => {
+  on('terra:notice-answer', (id, action, fields, choice) => {
     if (!isId(id)) return;
     const clean: Record<string, string> = {};
     if (fields && typeof fields === 'object') {
@@ -2353,12 +2359,12 @@ function setUpIpc() {
   });
 
   // Find on page.
-  on('nya:find', (text, forward, newSearch) => {
+  on('terra:find', (text, forward, newSearch) => {
     const contents = activeContents();
     if (!contents || !isText(text, 500)) return;
     if (!text) {
       contents.stopFindInPage('clearSelection');
-      sendToUi('nya:find-result', { active: 0, total: 0 });
+      sendToUi('terra:find-result', { active: 0, total: 0 });
       return;
     }
     contents.findInPage(text, {
@@ -2366,7 +2372,9 @@ function setUpIpc() {
       findNext: newSearch === true,
     });
   });
-  on('nya:find-stop', () => activeContents()?.stopFindInPage('keepSelection'));
+  on('terra:find-stop', () =>
+    activeContents()?.stopFindInPage('keepSelection'),
+  );
 
   // Address bar suggestions.
   const suggestContext = () => ({
@@ -2384,12 +2392,12 @@ function setUpIpc() {
     searchUrl,
     engineName: SEARCH_ENGINES[settings.searchEngine].name,
   });
-  handle('nya:suggest', (query) =>
+  handle('terra:suggest', (query) =>
     isText(query, 500)
       ? localSuggestions(query, suggestContext())
       : { suggestions: [], complete: '' },
   );
-  handle('nya:suggest-remote', async (query) => {
+  handle('terra:suggest-remote', async (query) => {
     if (!isText(query, 500) || !settings.searchSuggestions) return [];
     if (activeTab()?.isPrivate) return [];
     const terms = await remoteSuggestions(query, settings.searchEngine);
@@ -2402,7 +2410,7 @@ function setUpIpc() {
   });
   // The dropdown covers the page, which is a separate layer the UI can't
   // draw over: show a picture of the page under it instead.
-  handle('nya:suggest-open', async () => {
+  handle('terra:suggest-open', async () => {
     const tab = activeTab();
     const contents = pageOf(tab);
     let image: string | null = null;
@@ -2427,35 +2435,35 @@ function setUpIpc() {
     return image && window ? { image, bounds: pageBounds(window) } : null;
   });
   // The UI shows the picture first, then asks for the page to be hidden.
-  on('nya:suggest-cover', () => {
+  on('terra:suggest-cover', () => {
     suggestOpen = true;
     layout();
   });
-  on('nya:suggest-close', () => {
+  on('terra:suggest-close', () => {
     suggestOpen = false;
     layout();
   });
-  on('nya:switch-tab', (id) => isId(id) && activateTab(id));
-  on('nya:history-forget', (url) => isText(url) && deleteHistoryUrl(url));
+  on('terra:switch-tab', (id) => isId(id) && activateTab(id));
+  on('terra:history-forget', (url) => isText(url) && deleteHistoryUrl(url));
 
   // Bookmarks.
-  handle('nya:bookmarks', () => getBookmarks());
-  on('nya:bookmark-toggle', () => toggleBookmarkFor(activeTab()));
-  on('nya:bookmark-remove', (id) => isText(id, 64) && removeBookmark(id));
-  on('nya:bookmark-rename', (id, title) => {
+  handle('terra:bookmarks', () => getBookmarks());
+  on('terra:bookmark-toggle', () => toggleBookmarkFor(activeTab()));
+  on('terra:bookmark-remove', (id) => isText(id, 64) && removeBookmark(id));
+  on('terra:bookmark-rename', (id, title) => {
     if (isText(id, 64) && isText(title, 1024)) renameBookmark(id, title);
   });
 
   // Passwords.
-  handle('nya:logins', () => ({
+  handle('terra:logins', () => ({
     available: canStorePasswords(),
     logins: listLogins(),
   }));
-  handle('nya:login-reveal', (id) =>
+  handle('terra:login-reveal', (id) =>
     isText(id, 64) ? revealPassword(id) : null,
   );
-  on('nya:login-delete', (id) => isText(id, 64) && deleteLogin(id));
-  handle('nya:logins-import', async () => {
+  on('terra:login-delete', (id) => isText(id, 64) && deleteLogin(id));
+  handle('terra:logins-import', async () => {
     if (!window || !canStorePasswords()) return null;
     const result = await dialog.showOpenDialog(window, {
       title: 'Import passwords',
@@ -2471,12 +2479,12 @@ function setUpIpc() {
   });
 
   // Site permissions and exceptions.
-  handle('nya:sites', () => getSites());
-  on('nya:site-reset', (origin, permission) => {
+  handle('terra:sites', () => getSites());
+  on('terra:site-reset', (origin, permission) => {
     if (!isText(origin, 512)) return;
     resetSite(origin, isText(permission, 64) ? permission : undefined);
   });
-  on('nya:site-set', (origin, key, value) => {
+  on('terra:site-set', (origin, key, value) => {
     if (!isText(origin, 512)) return;
     if (key === 'allowAds') setAdsAllowed(origin, value === true);
     if (key === 'neverSavePasswords') {
@@ -2486,33 +2494,33 @@ function setUpIpc() {
   });
 
   // Import from other browsers.
-  handle('nya:import-sources', () => importSources());
-  handle('nya:import', (id) => (isText(id, 32) ? importFrom(id) : null));
+  handle('terra:import-sources', () => importSources());
+  handle('terra:import', (id) => (isText(id, 32) ? importFrom(id) : null));
 
   // Updates.
-  handle('nya:update-status', () => ({
+  handle('terra:update-status', () => ({
     supported: updatesSupported(),
     current: app.getVersion(),
     ready: readyUpdate?.version ?? null,
   }));
-  handle('nya:update-check', () =>
+  handle('terra:update-check', () =>
     updatesSupported() ? lookForUpdate(false) : null,
   );
-  on('nya:update-install', () => readyUpdate && installUpdate(readyUpdate));
+  on('terra:update-install', () => readyUpdate && installUpdate(readyUpdate));
 
   // Tabs, files and the address bar's buttons.
-  on('nya:tab-menu', (id) => isId(id) && showTabMenu(id));
-  on('nya:tab-mute', (id) => isId(id) && toggleMute(id));
-  on('nya:new-private-tab', () => newPrivateTab());
-  on('nya:site-menu', (x, y) => {
+  on('terra:tab-menu', (id) => isId(id) && showTabMenu(id));
+  on('terra:tab-mute', (id) => isId(id) && toggleMute(id));
+  on('terra:new-private-tab', () => newPrivateTab());
+  on('terra:site-menu', (x, y) => {
     if (typeof x === 'number' && typeof y === 'number') showSiteMenu(x, y);
   });
-  on('nya:zoom-reset', () => changeZoom(null));
-  on('nya:open-file', () => void openFileDialog());
-  on('nya:open-paths', (paths) => {
+  on('terra:zoom-reset', () => changeZoom(null));
+  on('terra:open-file', () => void openFileDialog());
+  on('terra:open-paths', (paths) => {
     if (Array.isArray(paths)) openPaths(paths.filter((p) => isText(p, 1024)));
   });
-  on('nya:open-links', (links) => {
+  on('terra:open-links', (links) => {
     if (!Array.isArray(links)) return;
     for (const link of links.slice(0, 20)) {
       const url = isText(link) ? toUrl(link, false) : null;
@@ -2530,7 +2538,7 @@ function setUpIpc() {
     return originOf(frame.url);
   };
   ipcMain.on(
-    'nya:login-submitted',
+    'terra:login-submitted',
     (event, username: unknown, password: unknown) => {
       const tab = tabFor(event.sender);
       const origin = loginOrigin(event);
@@ -2541,7 +2549,7 @@ function setUpIpc() {
       offerToSave(tab, origin, username, password);
     },
   );
-  ipcMain.on('nya:login-form', (event) => {
+  ipcMain.on('terra:login-form', (event) => {
     const tab = tabFor(event.sender);
     const origin = loginOrigin(event);
     if (!tab || tab.isPrivate || !origin || !settings.offerPasswords) return;
@@ -2563,6 +2571,7 @@ app.whenReady().then(() => {
     return;
   }
   void registerAsBrowser();
+  removeNyaApp();
   app.on('second-instance', (_event, argv) => openLinks(linksFromArgs(argv)));
 
   // Widevine (DRM) is downloaded into the user's profile on first launch and
@@ -2577,11 +2586,11 @@ app.whenReady().then(() => {
   loadSettings();
   initHistory(() => sendToUi('browser:history-changed', null));
   initBookmarks(() => {
-    sendToUi('nya:bookmarks-changed', null);
+    sendToUi('terra:bookmarks-changed', null);
     sendState();
   });
-  initSites(() => sendToUi('nya:sites-changed', null));
-  initPasswords(() => sendToUi('nya:logins-changed', null));
+  initSites(() => sendToUi('terra:sites-changed', null));
+  initPasswords(() => sendToUi('terra:logins-changed', null));
   initAdblock();
   setUpSession(session.defaultSession, false);
 
@@ -2629,6 +2638,23 @@ app.whenReady().then(() => {
   setInterval(() => void samplePageEdges(), 1500);
   setUpMenu();
   createWindow(linksFromArgs(process.argv));
+  if (fromNya) {
+    void ask({
+      kind: 'renamed',
+      tabId: null,
+      text: fromNya.wasDefault
+        ? 'Nya is now Terra, and everything came along. Make Terra your default browser again?'
+        : 'Nya is now Terra. Your tabs, bookmarks, passwords and settings came along.',
+      actions: fromNya.wasDefault
+        ? [
+            { id: 'default', label: 'Make default' },
+            { id: 'later', label: 'Later' },
+          ]
+        : [{ id: 'ok', label: 'OK' }],
+    }).then((response) => {
+      if (response.action === 'default') void openDefaultAppsSettings();
+    });
+  }
 
   // Look for a new version a little after starting, then twice a day.
   if (updatesSupported()) {
@@ -2648,7 +2674,7 @@ app.on('window-all-closed', () => {
     app.quit();
     return;
   }
-  // "Clear data when Nya closes": cookies, cache and site data.
+  // "Clear data when Terra closes": cookies, cache and site data.
   const ses = session.defaultSession;
   void Promise.allSettled([ses.clearStorageData(), ses.clearCache()]).then(() =>
     app.quit(),

@@ -1,7 +1,7 @@
 {
-  "name": "nya",
-  "productName": "Nya",
-  "version": "0.6.0",
+  "name": "terra",
+  "productName": "Terra",
+  "version": "0.7.0",
   "private": true,
   "description": "A clean, minimal web browser with vertical tabs",
   "keywords": [],

@@ -1,17 +1,17 @@
-// Registers Nya with Windows as a web browser so it appears in Settings >
+// Registers Terra with Windows as a web browser so it appears in Settings >
 // Apps > Default apps, and reports whether it is the default. Everything is
 // written under HKEY_CURRENT_USER: no administrator rights needed.
 //
 // Windows doesn't let apps make themselves the default; the user confirms it
-// in Settings, which openDefaultAppsSettings() opens on Nya's page.
+// in Settings, which openDefaultAppsSettings() opens on Terra's page.
 import { app, shell } from 'electron';
 import { execFile, execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-const NAME = 'Nya';
-const PROG_ID = 'NyaURL';
+const NAME = 'Terra';
+const PROG_ID = 'TerraURL';
 const CLASSES_KEY = `HKEY_CURRENT_USER\\Software\\Classes\\${PROG_ID}`;
 const CLIENT_PATH = `Software\\Clients\\StartMenuInternet\\${NAME}`;
 const CLIENT_KEY = `HKEY_CURRENT_USER\\${CLIENT_PATH}`;
@@ -23,7 +23,7 @@ export function defaultBrowserSupported() {
 
 /**
  * The exe Windows should start. Squirrel installs keep each version in its
- * own app-x.y.z folder; the Nya.exe one level up always starts the newest.
+ * own app-x.y.z folder; the Terra.exe one level up always starts the newest.
  */
 function launcherPath() {
   const exe = process.execPath;
@@ -74,7 +74,7 @@ export function registerAsBrowser(): Promise<void> {
     '',
   ].join('\r\n');
 
-  const file = path.join(os.tmpdir(), `nya-register-${process.pid}.reg`);
+  const file = path.join(os.tmpdir(), `terra-register-${process.pid}.reg`);
   try {
     // .reg files are UTF-16 with a byte order mark.
     fs.writeFileSync(file, `﻿${reg}`, 'utf16le');
@@ -90,7 +90,7 @@ export function registerAsBrowser(): Promise<void> {
 }
 
 /**
- * Removes the registration, but only if it belongs to this copy of Nya
+ * Removes the registration, but only if it belongs to this copy of Terra
  * (another install may have registered itself since). Runs synchronously
  * because the uninstaller quits right after.
  */
@@ -118,7 +118,7 @@ export function unregisterAsBrowser() {
   run(['delete', REGISTERED_APPS, '/v', NAME, '/f']);
 }
 
-/** Whether Windows currently opens web links with Nya. */
+/** Whether Windows currently opens web links with Terra. */
 export function isDefaultBrowser(): Promise<boolean> {
   if (!defaultBrowserSupported()) return Promise.resolve(false);
   const base =
@@ -142,7 +142,7 @@ export function isDefaultBrowser(): Promise<boolean> {
   );
 }
 
-/** Opens Windows Settings on Nya's default apps page. */
+/** Opens Windows Settings on Terra's default apps page. */
 export async function openDefaultAppsSettings() {
   await registerAsBrowser();
   await shell

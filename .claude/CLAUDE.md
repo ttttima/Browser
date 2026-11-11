@@ -1,6 +1,6 @@
-# Nya
+# Terra
 
-Nya is a desktop web browser built with Electron + TypeScript + Vite (Electron Forge).
+Terra is a desktop web browser built with Electron + TypeScript + Vite (Electron Forge).
 
 - `src/main.ts`: main process (tabs, windows, settings, shortcuts, security)
 - `src/preload.ts`: the only bridge between the UI and the main process
@@ -13,13 +13,15 @@ Nya is a desktop web browser built with Electron + TypeScript + Vite (Electron F
 - Data modules: `library.ts` (history, downloads), `bookmarks.ts`,
   `passwords.ts`, `site-settings.ts`, `session-store.ts`, plus `importer.ts`,
   `adblock.ts`, `updater.ts`, `suggest.ts`, `context-menu.ts`
+- `src/from-nya.ts`: Terra used to be called Nya; on the first start it
+  copies Nya's data over and removes the old Nya app
 
 Everything the user saves (history, bookmarks, passwords, settings, open
 tabs) stays on their computer in the user data folder; never send it
 anywhere. Passwords are encrypted with `safeStorage`. Only GitHub (updates),
 the ad block list, and opt-in search suggestions use the network.
 
-Nya must never need administrator rights: the app and installer run as
+Terra must never need administrator rights: the app and installer run as
 `asInvoker` and Squirrel installs per user into `%LocalAppData%`. Don't add
 anything that requires elevation (machine-wide installs, writing to Program
 Files or HKLM, services, drivers).

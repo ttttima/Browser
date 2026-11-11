@@ -96,13 +96,13 @@ contextBridge.exposeInMainWorld('browser', {
   },
 });
 
-// Newer features talk over "nya:" messages through this small bridge. Only
+// Newer features talk over "terra:" messages through this small bridge. Only
 // those channels pass; the main process still checks every message comes
 // from this UI.
 const allowed = (channel: unknown): channel is string =>
-  typeof channel === 'string' && channel.startsWith('nya:');
+  typeof channel === 'string' && channel.startsWith('terra:');
 
-contextBridge.exposeInMainWorld('nya', {
+contextBridge.exposeInMainWorld('terra', {
   send: (channel: string, ...args: unknown[]) => {
     if (allowed(channel)) ipcRenderer.send(channel, ...args);
   },

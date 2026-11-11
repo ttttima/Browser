@@ -178,9 +178,9 @@ ipcRenderer.on('browser:force-dark', (_event, on: unknown) => {
 
 // ---------------------------------------------------------------- passwords
 //
-// Tells Nya when the page shows a sign-in form (so it can offer a saved
+// Tells Terra when the page shows a sign-in form (so it can offer a saved
 // login) and when one is sent (so it can offer to save it). Filling happens
-// only after the user clicks "Fill in" in Nya's bar. Only the page itself
+// only after the user clicks "Fill in" in Terra's bar. Only the page itself
 // takes part, never frames inside it.
 
 const isTopPage =
@@ -221,7 +221,7 @@ let lastSent = '';
 function reportForm() {
   if (formReported || passwordFields().length === 0) return;
   formReported = true;
-  ipcRenderer.send('nya:login-form');
+  ipcRenderer.send('terra:login-form');
 }
 
 function captureLogin() {
@@ -231,7 +231,7 @@ function captureLogin() {
   const key = `${username}\n${password.value}`;
   if (key === lastSent) return;
   lastSent = key;
-  ipcRenderer.send('nya:login-submitted', username, password.value);
+  ipcRenderer.send('terra:login-submitted', username, password.value);
 }
 
 if (isTopPage) {
@@ -276,9 +276,9 @@ if (isTopPage) {
     true,
   );
 
-  // The user chose "Fill in" in Nya's bar.
+  // The user chose "Fill in" in Terra's bar.
   ipcRenderer.on(
-    'nya:login-fill',
+    'terra:login-fill',
     (_event, username: unknown, password: unknown) => {
       if (typeof username !== 'string' || typeof password !== 'string') return;
       const field = passwordFields()[0];

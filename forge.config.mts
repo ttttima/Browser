@@ -41,7 +41,7 @@ const config: ForgeConfig = {
     asar: true,
     // App icon: assets/icon.ico on Windows (.icns on macOS if added later).
     icon: 'assets/icon',
-    executableName: 'Nya',
+    executableName: 'Terra',
     // Package castLabs Electron (with Widevine), not the stock one.
     download: {
       mirrorOptions: {
@@ -52,7 +52,7 @@ const config: ForgeConfig = {
   },
   rebuildConfig: {},
   hooks: {
-    // After packaging, so the signature covers the final Nya.exe.
+    // After packaging, so the signature covers the final Terra.exe.
     postPackage: async (_config, { outputPaths, platform }) => {
       if (platform !== 'win32' && platform !== 'darwin') return;
       for (const dir of outputPaths) vmpSign(dir);

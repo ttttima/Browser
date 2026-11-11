@@ -1,4 +1,4 @@
-// History and downloads: what Nya remembers between runs. Both are saved as
+// History and downloads: what Terra remembers between runs. Both are saved as
 // JSON in the app's user data folder, written shortly after each change.
 import { app, shell, type DownloadItem, type Session } from 'electron';
 import fs from 'node:fs';
@@ -224,7 +224,7 @@ export function initDownloads(
         )
         .slice(0, MAX_DOWNLOADS)
         .map((info) => ({
-          // Anything that was still running when Nya closed is gone now.
+          // Anything that was still running when Terra closed is gone now.
           info: {
             ...info,
             state: ACTIVE.includes(info.state) ? 'interrupted' : info.state,

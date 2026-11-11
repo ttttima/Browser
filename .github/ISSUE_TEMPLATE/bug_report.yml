@@ -1,5 +1,5 @@
 name: Bug report
-description: Something in Nya doesn't work as it should
+description: Something in Terra doesn't work as it should
 labels: [bug]
 body:
   - type: textarea
@@ -12,7 +12,7 @@ body:
   - type: input
     id: version
     attributes:
-      label: Nya version
+      label: Terra version
       placeholder: '0.1.0'
   - type: input
     id: windows

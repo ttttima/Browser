@@ -1,7 +1,7 @@
 // Address bar suggestions, find on page, the site / bookmark / zoom buttons,
-// the question bar under the toolbar, and dropping files or links on Nya.
+// the question bar under the toolbar, and dropping files or links on Terra.
 import type { BrowserState, FindResult, Notice, Suggestion } from './shared';
-import { $, icon, nya, type IconName } from './ui-common';
+import { $, icon, terra, type IconName } from './ui-common';
 
 // ---------------------------------------------------------------- suggestions
 
@@ -77,10 +77,10 @@ function render() {
 async function cover() {
   if (covering || input?.id !== 'address') return;
   covering = true;
-  const picture = await nya.invoke<{
+  const picture = await terra.invoke<{
     image: string;
     bounds: { x: number; y: number; width: number; height: number };
-  } | null>('nya:suggest-open');
+  } | null>('terra:suggest-open');
   if (!covering) return;
   if (picture) {
     const area = suggestPanel.getBoundingClientRect();
@@ -95,7 +95,7 @@ async function cover() {
     backdrop.hidden = false;
   }
   await new Promise((resolve) => requestAnimationFrame(resolve));
-  if (covering) nya.send('nya:suggest-cover');
+  if (covering) terra.send('terra:suggest-cover');
 }
 
 export function closeSuggestions() {
@@ -107,7 +107,7 @@ export function closeSuggestions() {
     covering = false;
     backdrop.hidden = true;
     backdrop.removeAttribute('src');
-    nya.send('nya:suggest-close');
+    terra.send('terra:suggest-close');
   }
 }
 
@@ -120,10 +120,10 @@ async function update(target: HTMLInputElement, deleting: boolean) {
     return;
   }
   const id = ++request;
-  const result = await nya.invoke<{
+  const result = await terra.invoke<{
     suggestions: Suggestion[];
     complete: string;
-  }>('nya:suggest', query);
+  }>('terra:suggest', query);
   if (id !== request || document.activeElement !== target) return;
 
   items = result.suggestions;
@@ -144,7 +144,10 @@ async function update(target: HTMLInputElement, deleting: boolean) {
   render();
 
   if (!searchSuggestions) return;
-  const remote = await nya.invoke<Suggestion[]>('nya:suggest-remote', query);
+  const remote = await terra.invoke<Suggestion[]>(
+    'terra:suggest-remote',
+    query,
+  );
   if (id !== request || !remote.length) return;
   const known = new Set(items.map((item) => item.value));
   items = [...items, ...remote.filter((item) => !known.has(item.value))].slice(
@@ -157,7 +160,7 @@ async function update(target: HTMLInputElement, deleting: boolean) {
 function choose(item: Suggestion) {
   const target = input;
   closeSuggestions();
-  if (item.kind === 'tab') nya.send('nya:switch-tab', Number(item.value));
+  if (item.kind === 'tab') terra.send('terra:switch-tab', Number(item.value));
   else window.browser.navigate(item.value);
   if (target) {
     target.value = '';
@@ -213,7 +216,7 @@ export function suggestKeydown(event: KeyboardEvent): boolean {
     items[selected]?.kind === 'history'
   ) {
     event.preventDefault();
-    nya.send('nya:history-forget', items[selected].value);
+    terra.send('terra:history-forget', items[selected].value);
     items.splice(selected, 1);
     selected = Math.min(selected, items.length - 1);
     preview(items[selected]);
@@ -249,21 +252,21 @@ function openFind() {
   findBar.hidden = false;
   findInput.focus();
   findInput.select();
-  if (findInput.value) nya.send('nya:find', findInput.value, true, true);
+  if (findInput.value) terra.send('terra:find', findInput.value, true, true);
 }
 
 function closeFind() {
   if (findBar.hidden) return;
-  nya.send('nya:find-stop');
+  terra.send('terra:find-stop');
   findBar.hidden = true;
   addressBox.hidden = false;
   findCount.textContent = '';
   findBar.classList.remove('no-match');
 }
 
-nya.on('nya:find-open', openFind);
-nya.on('nya:find-close', closeFind);
-nya.on<FindResult>('nya:find-result', ({ active, total }) => {
+terra.on('terra:find-open', openFind);
+terra.on('terra:find-close', closeFind);
+terra.on<FindResult>('terra:find-result', ({ active, total }) => {
   const searching = findInput.value.length > 0;
   findCount.textContent = total
     ? `${active} of ${total}`
@@ -273,20 +276,20 @@ nya.on<FindResult>('nya:find-result', ({ active, total }) => {
   findBar.classList.toggle('no-match', searching && total === 0);
 });
 findInput.addEventListener('input', () =>
-  nya.send('nya:find', findInput.value, true, true),
+  terra.send('terra:find', findInput.value, true, true),
 );
 findInput.addEventListener('keydown', (event) => {
   if (event.key === 'Enter' && findInput.value) {
-    nya.send('nya:find', findInput.value, !event.shiftKey, false);
+    terra.send('terra:find', findInput.value, !event.shiftKey, false);
   } else if (event.key === 'Escape') {
     closeFind();
   }
 });
 $('#find-next').addEventListener('click', () =>
-  nya.send('nya:find', findInput.value, true, false),
+  terra.send('terra:find', findInput.value, true, false),
 );
 $('#find-prev').addEventListener('click', () =>
-  nya.send('nya:find', findInput.value, false, false),
+  terra.send('terra:find', findInput.value, false, false),
 );
 $('#find-close').addEventListener('click', closeFind);
 
@@ -316,10 +319,12 @@ window.browser.onStateChanged((state: BrowserState) => {
 
 siteButton.addEventListener('click', () => {
   const box = siteButton.getBoundingClientRect();
-  nya.send('nya:site-menu', box.left, box.bottom + 4);
+  terra.send('terra:site-menu', box.left, box.bottom + 4);
 });
-bookmarkButton.addEventListener('click', () => nya.send('nya:bookmark-toggle'));
-zoomChip.addEventListener('click', () => nya.send('nya:zoom-reset'));
+bookmarkButton.addEventListener('click', () =>
+  terra.send('terra:bookmark-toggle'),
+);
+zoomChip.addEventListener('click', () => terra.send('terra:zoom-reset'));
 
 // ---------------------------------------------------------------- questions
 
@@ -327,7 +332,7 @@ const noticeBar = $<HTMLDivElement>('#notice-bar');
 const noticeText = $<HTMLSpanElement>('#notice-text');
 const noticeControls = $<HTMLDivElement>('#notice-controls');
 
-nya.on<Notice | null>('nya:notice', (notice) => {
+terra.on<Notice | null>('terra:notice', (notice) => {
   noticeBar.hidden = !notice;
   document.body.classList.toggle('notice-open', !!notice);
   if (!notice) {
@@ -357,8 +362,8 @@ nya.on<Notice | null>('nya:notice', (notice) => {
   const answer = (action: string) => {
     const fields: Record<string, string> = {};
     for (const element of inputs) fields[element.name] = element.value;
-    nya.send(
-      'nya:notice-answer',
+    terra.send(
+      'terra:notice-answer',
       notice.id,
       action,
       fields,
@@ -407,15 +412,15 @@ document.addEventListener('drop', (event) => {
   if (!isOutsideDrag(event) || !event.dataTransfer) return;
   event.preventDefault();
   const files = [...event.dataTransfer.files]
-    .map((file) => nya.pathForFile(file))
+    .map((file) => terra.pathForFile(file))
     .filter(Boolean);
   if (files.length) {
-    nya.send('nya:open-paths', files);
+    terra.send('terra:open-paths', files);
     return;
   }
   const links = event.dataTransfer
     .getData('text/uri-list')
     .split(/\r?\n/)
     .filter((line) => line && !line.startsWith('#'));
-  if (links.length) nya.send('nya:open-links', links);
+  if (links.length) terra.send('terra:open-links', links);
 });

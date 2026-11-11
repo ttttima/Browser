@@ -1,6 +1,6 @@
 // Small helpers shared by the UI modules.
 
-export interface NyaBridge {
+export interface TerraBridge {
   send: (channel: string, ...args: unknown[]) => void;
   invoke: <T = unknown>(channel: string, ...args: unknown[]) => Promise<T>;
   on: <T = unknown>(channel: string, callback: (payload: T) => void) => void;
@@ -9,11 +9,11 @@ export interface NyaBridge {
 
 declare global {
   interface Window {
-    nya: NyaBridge;
+    terra: TerraBridge;
   }
 }
 
-export const nya = window.nya;
+export const terra = window.terra;
 
 export const $ = <T extends HTMLElement>(selector: string) =>
   document.querySelector<T>(selector)!;

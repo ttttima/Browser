@@ -196,7 +196,7 @@ export type DownloadAction =
   | 'retry'
   | 'remove';
 
-/** Whether Nya can be, and is, the system's default browser. */
+/** Whether Terra can be, and is, the system's default browser. */
 export interface DefaultBrowserState {
   supported: boolean;
   isDefault: boolean;
@@ -361,7 +361,7 @@ export interface Settings {
   windowAnimations: boolean;
   /** See BINDINGS_VERSION. */
   bindingsVersion: number;
-  /** What opens when Nya starts. */
+  /** What opens when Terra starts. */
   startup: 'restore' | 'newTab';
   /** Ask the search engine for suggestions while typing (sends the text). */
   searchSuggestions: boolean;
@@ -369,7 +369,7 @@ export interface Settings {
   blockAds: boolean;
   /** Offer to save passwords and fill them in. */
   offerPasswords: boolean;
-  /** Delete cookies, cache and site data when Nya closes. */
+  /** Delete cookies, cache and site data when Terra closes. */
   clearOnExit: boolean;
   /** Download new versions in the background and offer to restart. */
   autoUpdate: boolean;

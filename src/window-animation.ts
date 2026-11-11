@@ -2,7 +2,7 @@
 //
 // A window can't tilt, blur or fly in 3D, so a stand-in does it: a
 // transparent, click-through overlay covering the screen plays the
-// animation with a picture of Nya, and hands over to the real window on the
+// animation with a picture of Terra, and hands over to the real window on the
 // first (closing) or last (opening) frame, where both look identical.
 //
 //   Opening: rises from below, tilted back and blurred, overshoots a little
@@ -179,7 +179,7 @@ export function prepareOverlay() {
     .then(() => {
       if (win.isDestroyed()) return false;
       // Stays shown and screen-sized, but waits off-screen: Chromium counts
-      // even a transparent window on top as covering Nya, which would pause
+      // even a transparent window on top as covering Terra, which would pause
       // videos and throttle pages.
       win.setBounds(screen.getPrimaryDisplay().bounds);
       park(win);

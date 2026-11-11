@@ -1,8 +1,8 @@
-// Updates from GitHub releases. Nya asks GitHub for the newest release (the
+// Updates from GitHub releases. Terra asks GitHub for the newest release (the
 // only thing sent is the request itself), downloads it in the background
 // and, when the user agrees, closes, swaps in the new version and reopens.
 //
-// How it's swapped depends on how Nya was installed:
+// How it's swapped depends on how Terra was installed:
 //   Setup.exe (Squirrel): run the new Setup.exe, which updates in place.
 //   PowerShell line / portable zip: unpack the new zip over the app folder.
 import { app, net } from 'electron';
@@ -20,7 +20,7 @@ export interface ReadyUpdate {
 
 type InstallKind = 'squirrel' | 'folder';
 
-/** Squirrel keeps each version in ...\nya\app-x.y.z with Update.exe above. */
+/** Squirrel keeps each version in ...\terra\app-x.y.z with Update.exe above. */
 function installKind(): InstallKind {
   const dir = path.dirname(process.execPath);
   return /^app-\d/.test(path.basename(dir)) &&
@@ -46,14 +46,17 @@ let checking: Promise<ReadyUpdate | null> | null = null;
 
 /**
  * Finds a newer release and downloads it. Resolves with the downloaded
- * update, or null when Nya is up to date (or offline).
+ * update, or null when Terra is up to date (or offline).
  */
 export function checkForUpdate(): Promise<ReadyUpdate | null> {
   if (ready) return Promise.resolve(ready);
   checking ??= (async () => {
     try {
       const response = await net.fetch(RELEASES, {
-        headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'Nya' },
+        headers: {
+          Accept: 'application/vnd.github+json',
+          'User-Agent': 'Terra',
+        },
       });
       if (!response.ok) return null;
       const releases = (await response.json()) as {
@@ -67,8 +70,11 @@ export function checkForUpdate(): Promise<ReadyUpdate | null> {
       if (!/^\d+\.\d+\.\d+$/.test(version)) return null;
       if (!newer(version, app.getVersion())) return null;
 
+      // The zip is named "...-portable-win.zip", not "...-portable.zip": Nya
+      // 0.6.0 looked for the latter and would unpack Terra over itself but
+      // keep starting its old Nya.exe, which can't run the new files.
       const pattern =
-        installKind() === 'squirrel' ? /Setup\.exe$/i : /portable\.zip$/i;
+        installKind() === 'squirrel' ? /Setup\.exe$/i : /portable.*\.zip$/i;
       const asset = release.assets.find((a) => pattern.test(a.name));
       if (!asset) return null;
 
@@ -89,31 +95,31 @@ export function checkForUpdate(): Promise<ReadyUpdate | null> {
   return checking;
 }
 
-/** Closes Nya, installs the downloaded update and starts the new version. */
+/** Closes Terra, installs the downloaded update and starts the new version. */
 export function installUpdate(update: ReadyUpdate) {
   const exe = process.execPath;
   const dir = path.dirname(exe);
   const kind = installKind();
-  const script = path.join(os.tmpdir(), `nya-update-${Date.now()}.ps1`);
+  const script = path.join(os.tmpdir(), `terra-update-${Date.now()}.ps1`);
   const quote = (text: string) => `'${text.replace(/'/g, "''")}'`;
 
-  // Wait until every Nya process from this folder has exited, so no file is
+  // Wait until every Terra process from this folder has exited, so no file is
   // still in use, then swap and restart.
   const wait = `
 $deadline = (Get-Date).AddSeconds(30)
-while ((Get-Process -Name 'Nya' -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path.StartsWith(${quote(kind === 'squirrel' ? path.dirname(dir) : dir)}, 'OrdinalIgnoreCase') }) -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 300 }
+while ((Get-Process -Name 'Terra' -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path.StartsWith(${quote(kind === 'squirrel' ? path.dirname(dir) : dir)}, 'OrdinalIgnoreCase') }) -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 300 }
 `;
   const body =
     kind === 'squirrel'
       ? `Start-Process -FilePath ${quote(update.file)}`
       : `
-$temp = Join-Path ([IO.Path]::GetTempPath()) ('nya-update-' + [guid]::NewGuid())
+$temp = Join-Path ([IO.Path]::GetTempPath()) ('terra-update-' + [guid]::NewGuid())
 Expand-Archive -Path ${quote(update.file)} -DestinationPath $temp -Force
 $source = $temp
-if (-not (Test-Path (Join-Path $source 'Nya.exe'))) { $source = (Get-ChildItem $temp -Directory | Select-Object -First 1).FullName }
+if (-not (Test-Path (Join-Path $source 'Terra.exe'))) { $source = (Get-ChildItem $temp -Directory | Select-Object -First 1).FullName }
 Copy-Item -Path (Join-Path $source '*') -Destination ${quote(dir)} -Recurse -Force
 Get-ChildItem ${quote(dir)} -Recurse -File | Unblock-File
-$key = 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Nya'
+$key = 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Terra'
 $entry = Get-ItemProperty $key -ErrorAction SilentlyContinue
 if ($entry -and $entry.InstallLocation -eq ${quote(dir)}) { Set-ItemProperty $key -Name DisplayVersion -Value ${quote(update.version)} }
 Remove-Item $temp -Recurse -Force -ErrorAction SilentlyContinue
@@ -124,7 +130,7 @@ Start-Process -FilePath ${quote(exe)}
     script,
     `${wait}${body}\nRemove-Item $PSCommandPath -Force\n`,
   );
-  // Started through "cmd /c start" so it keeps running after Nya quits:
+  // Started through "cmd /c start" so it keeps running after Terra quits:
   // Node ends ordinary child processes with their parent, and PowerShell
   // won't run as a detached process without a console.
   spawn(

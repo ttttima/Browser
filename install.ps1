@@ -1,16 +1,16 @@
-# Installs Nya for the current user - no administrator rights needed.
+# Installs Terra for the current user - no administrator rights needed.
 #
 #   irm https://raw.githubusercontent.com/ttttima/Browser/main/install.ps1 | iex
 #
-# Downloads the newest Nya release from GitHub, puts it in
-# %LOCALAPPDATA%\Programs\Nya, adds Start menu and desktop shortcuts and an
-# entry in Windows "Installed apps" (with uninstall), then starts Nya.
-# Running it again updates Nya to the newest version.
+# Downloads the newest Terra release from GitHub, puts it in
+# %LOCALAPPDATA%\Programs\Terra, adds Start menu and desktop shortcuts and an
+# entry in Windows "Installed apps" (with uninstall), then starts Terra.
+# Running it again updates Terra to the newest version.
 
 param(
     # Install from a local zip instead of downloading (for testing).
     [string]$ZipPath,
-    [string]$InstallDir = (Join-Path $env:LOCALAPPDATA 'Programs\Nya'),
+    [string]$InstallDir = (Join-Path $env:LOCALAPPDATA 'Programs\Terra'),
     [switch]$NoLaunch
 )
 
@@ -19,8 +19,8 @@ $ProgressPreference = 'SilentlyContinue' # much faster downloads in PowerShell 5
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 $Repo = 'ttttima/Browser'
-$AppName = 'Nya'
-$Exe = Join-Path $InstallDir 'Nya.exe'
+$AppName = 'Terra'
+$Exe = Join-Path $InstallDir 'Terra.exe'
 
 function Write-Step($text) { Write-Host "  $text" -ForegroundColor Gray }
 
@@ -29,7 +29,7 @@ Write-Host "  Installing $AppName" -ForegroundColor White
 Write-Host ''
 
 # --- 1. Get the zip --------------------------------------------------------
-$temp = Join-Path ([IO.Path]::GetTempPath()) ("nya-install-" + [guid]::NewGuid())
+$temp = Join-Path ([IO.Path]::GetTempPath()) ("terra-install-" + [guid]::NewGuid())
 New-Item -ItemType Directory -Force $temp | Out-Null
 try {
     if ($ZipPath) {
@@ -39,19 +39,19 @@ try {
         Write-Step 'Finding the newest version...'
         # All releases (not /latest), so preview releases count too.
         $releases = Invoke-RestMethod "https://api.github.com/repos/$Repo/releases" `
-            -Headers @{ 'User-Agent' = 'Nya-installer' }
+            -Headers @{ 'User-Agent' = 'Terra-installer' }
         $release = $releases | Where-Object { -not $_.draft } | Select-Object -First 1
-        $asset = $release.assets | Where-Object { $_.name -like '*portable.zip' } |
+        $asset = $release.assets | Where-Object { $_.name -like '*portable*.zip' } |
             Select-Object -First 1
         if (-not $asset) { throw "No download found in the newest release." }
         $version = $release.tag_name.TrimStart('v')
         $zip = Join-Path $temp $asset.name
-        Write-Step "Downloading Nya $version ($([math]::Round($asset.size / 1MB)) MB)..."
+        Write-Step "Downloading Terra $version ($([math]::Round($asset.size / 1MB)) MB)..."
         Invoke-WebRequest $asset.browser_download_url -OutFile $zip -UseBasicParsing
     }
 
-    # --- 2. Close a running Nya and replace the old files --------------------
-    Get-Process -Name 'Nya' -ErrorAction SilentlyContinue |
+    # --- 2. Close a running Terra and replace the old files --------------------
+    Get-Process -Name 'Terra' -ErrorAction SilentlyContinue |
         Where-Object { $_.Path -and $_.Path.StartsWith($InstallDir, 'OrdinalIgnoreCase') } |
         Stop-Process -Force
     Start-Sleep -Milliseconds 500
@@ -61,10 +61,10 @@ try {
     Expand-Archive -Path $zip -DestinationPath $unpacked -Force
     # The zip may hold the files directly or inside one folder.
     $source = $unpacked
-    if (-not (Test-Path (Join-Path $source 'Nya.exe'))) {
+    if (-not (Test-Path (Join-Path $source 'Terra.exe'))) {
         $inner = Get-ChildItem $unpacked -Directory | Select-Object -First 1
-        if ($inner -and (Test-Path (Join-Path $inner.FullName 'Nya.exe'))) { $source = $inner.FullName }
-        else { throw 'The download does not contain Nya.exe.' }
+        if ($inner -and (Test-Path (Join-Path $inner.FullName 'Terra.exe'))) { $source = $inner.FullName }
+        else { throw 'The download does not contain Terra.exe.' }
     }
     if (Test-Path $InstallDir) { Remove-Item $InstallDir -Recurse -Force }
     New-Item -ItemType Directory -Force (Split-Path $InstallDir) | Out-Null
@@ -81,25 +81,25 @@ try {
         $link.TargetPath = $Exe
         $link.WorkingDirectory = $InstallDir
         $link.IconLocation = "$Exe,0"
-        $link.Description = 'Nya web browser'
+        $link.Description = 'Terra web browser'
         $link.Save()
     }
 
     # --- 4. Uninstaller + "Installed apps" entry ------------------------------
     $uninstaller = Join-Path $InstallDir 'uninstall.ps1'
     @"
-# Removes Nya (installed by install.ps1). Your settings and history stay in
-# %APPDATA%\Nya - delete that folder too if you want them gone.
-Get-Process -Name 'Nya' -ErrorAction SilentlyContinue |
+# Removes Terra (installed by install.ps1). Your settings and history stay in
+# %APPDATA%\Terra - delete that folder too if you want them gone.
+Get-Process -Name 'Terra' -ErrorAction SilentlyContinue |
     Where-Object { `$_.Path -and `$_.Path.StartsWith('$InstallDir', 'OrdinalIgnoreCase') } |
     Stop-Process -Force
 Start-Sleep -Milliseconds 500
 Remove-Item '$startMenu', '$desktop' -Force -ErrorAction SilentlyContinue
 Remove-Item 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\$AppName' -Recurse -Force -ErrorAction SilentlyContinue
 # Browser registration (Default apps), only if it belongs to this copy.
-`$command = (Get-ItemProperty 'HKCU:\Software\Classes\NyaURL\shell\open\command' -ErrorAction SilentlyContinue).'(default)'
+`$command = (Get-ItemProperty 'HKCU:\Software\Classes\TerraURL\shell\open\command' -ErrorAction SilentlyContinue).'(default)'
 if (`$command -and `$command.ToLower().Contains('$($InstallDir.ToLower())')) {
-    Remove-Item 'HKCU:\Software\Classes\NyaURL' -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item 'HKCU:\Software\Classes\TerraURL' -Recurse -Force -ErrorAction SilentlyContinue
     Remove-Item 'HKCU:\Software\Clients\StartMenuInternet\$AppName' -Recurse -Force -ErrorAction SilentlyContinue
     Remove-ItemProperty 'HKCU:\Software\RegisteredApplications' -Name '$AppName' -ErrorAction SilentlyContinue
 }
@@ -126,7 +126,7 @@ Start-Process powershell -WindowStyle Hidden -ArgumentList '-NoProfile', '-Comma
     New-ItemProperty -Path $key -Name NoRepair -Value 1 -PropertyType DWord -Force | Out-Null
 
     Write-Host ''
-    Write-Host "  Nya $version is installed." -ForegroundColor Green
+    Write-Host "  Terra $version is installed." -ForegroundColor Green
     Write-Host "  Find it in the Start menu or on your desktop." -ForegroundColor Gray
     Write-Host ''
 
