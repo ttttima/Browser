@@ -26,7 +26,12 @@ import {
   initBookmarks,
   isBookmarked,
   removeBookmark,
+  createFolder,
+  deleteFolder,
+  getFolders,
+  moveBookmark,
   renameBookmark,
+  renameFolder,
   setBookmarkFavicon,
   toggleBookmark,
 } from './bookmarks';
@@ -1316,7 +1321,27 @@ function showBookmarkMenu(id: string) {
       click: () => createTab(bookmark.url, { isPrivate: true }),
     },
     { type: 'separator' },
+    {
+      label: 'Move to folder',
+      enabled: getFolders().length > 0,
+      submenu: [
+        {
+          label: 'No folder',
+          type: 'radio',
+          checked: !bookmark.folderId,
+          click: () => moveBookmark(id, null),
+        },
+        { type: 'separator' },
+        ...getFolders().map((folder) => ({
+          label: folder.title.replace(/&/g, '&&'),
+          type: 'radio' as const,
+          checked: bookmark.folderId === folder.id,
+          click: () => moveBookmark(id, folder.id),
+        })),
+      ],
+    },
     { label: 'Remove bookmark', click: () => removeBookmark(id) },
+    { type: 'separator' },
     { label: 'All bookmarks', click: () => showPanelPage('bookmarks') },
   ]).popup({ window });
 }
@@ -2502,6 +2527,19 @@ function setUpIpc() {
 
   // Bookmarks.
   handle('terra:bookmarks', () => getBookmarks());
+  handle('terra:bookmark-folders', () => getFolders());
+  handle('terra:folder-create', (title) =>
+    isText(title, 256) ? createFolder(title) : null,
+  );
+  on('terra:folder-rename', (id, title) => {
+    if (isText(id, 64) && isText(title, 256)) renameFolder(id, title);
+  });
+  on('terra:folder-delete', (id) => isText(id, 64) && deleteFolder(id));
+  on('terra:bookmark-move', (id, folderId) => {
+    if (isText(id, 64) && (folderId === null || isText(folderId, 64))) {
+      moveBookmark(id, folderId);
+    }
+  });
   on('terra:bookmark-toggle', () => toggleBookmarkFor(activeTab()));
   on('terra:bookmark-open', (id, inNewTab) => {
     if (isText(id, 64)) openBookmark(id, inNewTab === true);

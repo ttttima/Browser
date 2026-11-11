@@ -509,7 +509,8 @@ body.sidebar-collapsed #open-downloads {
 }
 
 #open-downloads.active,
-#open-settings.active {
+#open-settings.active,
+#bookmarks-pop-button.active {
   background: var(--accent-soft);
   color: var(--accent);
 }
@@ -1321,6 +1322,17 @@ body.smooth-dividers #bookmark-list::after {
   );
 }
 
+/* The line between folders and loose bookmarks in the pop-out too. */
+body.smooth-dividers .pop-group-end::after {
+  background: linear-gradient(
+    to right,
+    transparent,
+    var(--divider) var(--fade),
+    var(--divider) calc(100% - var(--fade)),
+    transparent
+  );
+}
+
 /* A setting that does nothing right now (e.g. smoothing with no dividers). */
 .setting-row.disabled {
   opacity: 0.4;
@@ -1908,6 +1920,168 @@ body.settings-open #notice-bar {
 .tab.bookmark-more,
 .tab.bookmark-more .tab-icon {
   color: var(--muted);
+}
+
+/* ============================================================ bookmarks pop-out */
+
+/* The bookmarks button sits next to the sidebar toggle, expanded only. */
+body.sidebar-collapsed #bookmarks-pop-button {
+  display: none;
+}
+
+/* Inside the sidebar column, 4px from its edges: 12px card with 4px
+   padding, so rows (8 = 12 - 4) land exactly where the tabs are, with
+   their icons on the same 24px axis. */
+.bookmarks-pop {
+  position: fixed;
+  top: calc(var(--control-lg) + var(--space-1));
+  left: var(--space-1);
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  width: calc(var(--sidebar-full) - var(--space-2));
+  max-height: calc(100vh - var(--control-lg) * 2 - var(--space-2));
+  padding: var(--space-1);
+  border-radius: var(--radius-lg);
+  background: var(--panel);
+  /* An outline, not a border: it takes no space, so the rows stay exactly
+     on the tabs' positions. */
+  outline: 1px solid var(--border);
+  box-shadow: var(--shadow);
+}
+
+.pop-header {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  height: var(--control);
+}
+
+.pop-title {
+  flex: 1;
+  padding: 0 var(--space-2);
+  font-weight: var(--weight-bold);
+}
+
+.pop-header .list-action {
+  color: var(--muted);
+}
+
+.pop-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-height: var(--control);
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.pop-list::-webkit-scrollbar {
+  width: var(--space-1);
+}
+
+.pop-list::-webkit-scrollbar-thumb {
+  background: var(--chip);
+  border-radius: var(--radius-full);
+}
+
+/* Small buttons on the right of a row, shown on hover: the last one is
+   centered 16px from the edge, mirroring the icon on the left. */
+.pop-row .list-action {
+  display: none;
+  width: var(--control-sm);
+  height: var(--control-sm);
+  min-width: var(--control-sm);
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+}
+
+.pop-row:hover .list-action,
+.pop-row:focus-within .list-action {
+  display: inline-flex;
+}
+
+.pop-row .list-action:hover:not(:disabled) {
+  background: var(--chip);
+  color: var(--text-strong);
+}
+
+.pop-folder .tab-icon {
+  color: var(--muted);
+}
+
+.pop-folder.open .tab-icon {
+  color: var(--accent);
+}
+
+.pop-count {
+  padding: 0 var(--space-2);
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+.pop-folder:hover .pop-count,
+.pop-folder:focus-within .pop-count {
+  display: none;
+}
+
+/* Bookmarks in a folder start where the folder's name starts. */
+.pop-bookmark.in-folder {
+  padding-left: var(--space-8);
+}
+
+.pop-folder-empty {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  height: var(--control);
+  padding-left: var(--space-8);
+  border-radius: var(--radius);
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+.pop-name {
+  flex: 1;
+  min-width: 0;
+  height: var(--control-sm);
+  margin-right: var(--space-1);
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-sm);
+}
+
+/* Dropping a bookmark: the folder (or empty space) it will go to. */
+.pop-row.drop-into,
+.pop-folder-empty.drop-into {
+  background: var(--accent-soft);
+  color: var(--text-strong);
+}
+
+.pop-row.dragging {
+  opacity: 0.4;
+}
+
+/* The line after the folders: same spacing as after pinned tabs. */
+.pop-group-end {
+  position: relative;
+  margin-bottom: var(--space-2);
+}
+
+.pop-group-end::after {
+  content: '';
+  position: absolute;
+  right: var(--space-2);
+  bottom: calc(var(--space-1) * -1 - 1px);
+  left: var(--space-2);
+  height: 1px;
+  background: var(--divider);
+}
+
+.pop-empty {
+  padding: var(--space-6) var(--space-2);
+  color: var(--muted);
+  text-align: center;
 }
 
 /* Private tabs: an eye icon instead of the site's. */

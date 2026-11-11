@@ -1,11 +1,16 @@
-// Bookmarks: saved as bookmarks.json in the user data folder, nowhere else.
+// Bookmarks and their folders: saved as bookmarks.json and
+// bookmark-folders.json in the user data folder, nowhere else.
 import { isText, newId, readJson, saveSoon } from './library';
-import type { Bookmark } from './shared';
+import type { Bookmark, BookmarkFolder } from './shared';
 
 const MAX_BOOKMARKS = 20_000;
 
+const MAX_FOLDERS = 500;
+
 /** Newest first. */
 let bookmarks: Bookmark[] = [];
+/** In the order they were made. */
+let folders: BookmarkFolder[] = [];
 let onChange = () => {};
 
 function changed() {
@@ -13,8 +18,26 @@ function changed() {
   onChange();
 }
 
+function foldersChanged() {
+  saveSoon('bookmark-folders.json', () => folders);
+  changed();
+}
+
 export function initBookmarks(notify: () => void) {
   onChange = notify;
+  const savedFolders = readJson('bookmark-folders.json');
+  folders = Array.isArray(savedFolders)
+    ? savedFolders
+        .filter(
+          (f): f is BookmarkFolder =>
+            f &&
+            isText(f.id, 64) &&
+            isText(f.title, 256) &&
+            typeof f.time === 'number',
+        )
+        .slice(0, MAX_FOLDERS)
+    : [];
+  const folderIds = new Set(folders.map((f) => f.id));
   const saved = readJson('bookmarks.json');
   bookmarks = Array.isArray(saved)
     ? saved
@@ -27,11 +50,58 @@ export function initBookmarks(notify: () => void) {
             isText(b.title, 1024) &&
             typeof b.time === 'number',
         )
-        .map((b) =>
-          validFavicon(b.favicon) ? b : { ...b, favicon: undefined },
-        )
+        .map((b) => ({
+          ...b,
+          favicon: validFavicon(b.favicon) ? b.favicon : undefined,
+          // A folder that no longer exists: back to the top level.
+          folderId:
+            isText(b.folderId, 64) && folderIds.has(b.folderId)
+              ? b.folderId
+              : undefined,
+        }))
         .slice(0, MAX_BOOKMARKS)
     : [];
+}
+
+export const getFolders = () => folders;
+
+/** Makes a folder and returns its id. */
+export function createFolder(title: string) {
+  if (folders.length >= MAX_FOLDERS) return null;
+  const folder = {
+    id: newId(),
+    title: title.trim().slice(0, 256) || 'New folder',
+    time: Date.now(),
+  };
+  folders.push(folder);
+  foldersChanged();
+  return folder.id;
+}
+
+export function renameFolder(id: string, title: string) {
+  const folder = folders.find((f) => f.id === id);
+  const name = title.trim().slice(0, 256);
+  if (!folder || !name) return;
+  folder.title = name;
+  foldersChanged();
+}
+
+/** Deletes the folder only; its bookmarks move to the top level. */
+export function deleteFolder(id: string) {
+  folders = folders.filter((f) => f.id !== id);
+  for (const bookmark of bookmarks) {
+    if (bookmark.folderId === id) bookmark.folderId = undefined;
+  }
+  foldersChanged();
+}
+
+/** Puts a bookmark in a folder, or at the top level with null. */
+export function moveBookmark(id: string, folderId: string | null) {
+  const bookmark = bookmarks.find((b) => b.id === id);
+  if (!bookmark) return;
+  if (folderId !== null && !folders.some((f) => f.id === folderId)) return;
+  bookmark.folderId = folderId ?? undefined;
+  changed();
 }
 
 function validFavicon(favicon: unknown): favicon is string {

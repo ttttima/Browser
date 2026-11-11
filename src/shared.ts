@@ -234,6 +234,16 @@ export interface Bookmark {
   time: number;
   /** The site's icon, picked up when the page is open in a tab. */
   favicon?: string;
+  /** The folder it's in (see BookmarkFolder), or none: top level. */
+  folderId?: string;
+}
+
+/** A folder in the bookmarks pop-out. One level, no folders in folders. */
+export interface BookmarkFolder {
+  id: string;
+  title: string;
+  /** When it was made, in ms since 1970. */
+  time: number;
 }
 
 /** How many bookmarks the sidebar shows; the rest are on the Bookmarks page. */

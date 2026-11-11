@@ -2,6 +2,7 @@ import './index.css';
 import { pageShown } from './ui-pages';
 import { cancelColorPanel, openColorPanel } from './ui-color-panel';
 import { bookmarksReady } from './ui-sidebar';
+import { closeBookmarksPop } from './ui-bookmarks-pop';
 import { icon } from './ui-common';
 import {
   attachSuggestions,
@@ -380,6 +381,7 @@ function renderTabIcon(icon: HTMLElement, tab: TabInfo) {
 
 function renderTabs(state: TabsState) {
   document.body.classList.toggle('sidebar-collapsed', state.sidebarCollapsed);
+  if (state.sidebarCollapsed) closeBookmarksPop();
   document.body.classList.toggle('fullscreen', state.fullScreen);
   setSettingsVisible(state.settingsOpen);
 
@@ -535,6 +537,7 @@ for (const [value, engine] of Object.entries(SEARCH_ENGINES)) {
 
 function setSettingsVisible(open: boolean) {
   if (!open) cancelColorPanel();
+  if (open) closeBookmarksPop();
   settingsPage.hidden = !open;
   document.body.classList.toggle('settings-open', open);
   updatePanelButtons();

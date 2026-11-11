@@ -6,7 +6,8 @@ import { $, hostOf, icon, terra } from './ui-common';
 
 const list = $<HTMLUListElement>('#bookmark-list');
 
-function siteIcon(bookmark: Bookmark) {
+/** The site's icon, or a letter badge when there is none (yet). */
+export function siteIcon(bookmark: Bookmark) {
   const box = document.createElement('span');
   box.className = 'tab-icon';
   const letter = () => {
