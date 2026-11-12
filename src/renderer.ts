@@ -3,6 +3,7 @@ import { pageShown } from './ui-pages';
 import { cancelColorPanel, openColorPanel } from './ui-color-panel';
 import { closeBookmarksPop } from './ui-bookmarks-pop';
 import { updateAutoCompact } from './ui-auto-compact';
+import './ui-backdrop';
 import { icon } from './ui-common';
 import {
   attachSuggestions,

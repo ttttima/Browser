@@ -7,7 +7,8 @@ Terra is a desktop web browser built with Electron + TypeScript + Vite (Electron
 - `src/renderer.ts` + `index.html` + `src/index.css`: the browser UI
 - `src/shared.ts`: types and constants used by all three
 - `src/ui-*.ts`: UI modules (toolbar: suggestions, find, questions bar;
-  bookmarks pop-out with folders; auto-compact sidebar;
+  bookmarks pop-out with folders; auto-compact sidebar; backdrop: the
+  window's soft gradients drawn dithered on the GPU;
   pages: privacy, bookmarks, passwords)
 - `src/tab-preload.ts`: runs in every website (dark mode forcer, password
   helper), in an isolated world
@@ -113,6 +114,12 @@ exactly 8px above and below them.
   pictures of the page, every 250 ms while its colors change and 750 ms
   when still, skipped while the window is covered or minimized. The window is never see-through, and controls, cards and the web
   page don't change.
+- Large, soft gradients (anything spanning more than a few dozen pixels,
+  like the glass light or the smooth-divider glows) band into rings in
+  plain CSS: Chromium doesn't dither them. Draw them in `ui-backdrop.ts`,
+  which computes them in float and dithers before rounding to 8 bits; the
+  CSS versions stay only as the fallback without WebGL. Don't add noise
+  overlays on top: they can't remove banding, only add grain.
 - The one size animation is the sidebar sliding between compact and normal
   (`--sidebar-open` in `index.css`, `toggleSidebar` in `main.ts`). It also
   uses `--duration`; the web page is swapped for a picture while it slides.

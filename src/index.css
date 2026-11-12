@@ -2302,3 +2302,45 @@ body.glass.smooth-dividers .settings-content {
   background: transparent;
   box-shadow: none;
 }
+
+/* ============================================================ backdrop */
+
+/* The large soft gradients behind the UI (glass light and sheen, the
+   smooth-divider glows) are drawn by ui-backdrop.ts on one GPU canvas, with
+   dithering, so they don't band into rings. While it runs (body.backdrop-gl)
+   the CSS versions above stand aside; without WebGL they are the fallback.
+   The canvas sits under everything and catches no clicks. */
+#backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+body.backdrop-gl,
+body.backdrop-gl.glass,
+body.backdrop-gl.smooth-dividers,
+body.backdrop-gl.glass.smooth-dividers {
+  background: transparent;
+}
+
+/* Still laid out, so the backdrop can follow its shape. */
+body.backdrop-gl #page-glow {
+  visibility: hidden;
+}
+
+body.backdrop-gl.smooth-dividers #settings {
+  background: transparent;
+}
+
+body.backdrop-gl.smooth-dividers .settings-content {
+  background: transparent;
+  box-shadow: none;
+}
+
+/* The old grain on top isn't needed: the backdrop dithers before rounding. */
+body.backdrop-gl::after {
+  display: none;
+}
