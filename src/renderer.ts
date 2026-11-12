@@ -883,6 +883,37 @@ const TINTED_TOKENS = [
 
 const tintRow = $<HTMLDivElement>('#tint-row');
 const tintNote = $<HTMLElement>('#tint-note');
+const glassRow = $<HTMLLabelElement>('#glass-row');
+const glassNote = $<HTMLElement>('#glass-note');
+const liquidGlass = $<HTMLInputElement>('#setting-liquid-glass');
+let glassWanted = false;
+
+/** Liquid glass look (index.css body.glass); main sets the window material. */
+const reducedTransparency = matchMedia(
+  '(prefers-reduced-transparency: reduce)',
+);
+reducedTransparency.addEventListener('change', () => applyGlass());
+
+function applyGlass() {
+  const oled = colors.theme === 'oled';
+  // Windows' "Transparency effects" off: solid, like main's window.
+  document.body.classList.toggle(
+    'glass',
+    glassWanted && !oled && !reducedTransparency.matches,
+  );
+  glassRow.classList.toggle('disabled', oled);
+  liquidGlass.disabled = oled;
+  liquidGlass.checked = glassWanted;
+  glassNote.textContent = oled
+    ? 'Off in OLED dark'
+    : 'See-through, blurred sidebar and bars';
+}
+
+liquidGlass.addEventListener('change', () => {
+  glassWanted = liquidGlass.checked;
+  applyGlass();
+  window.browser.updateSettings({ liquidGlass: glassWanted });
+});
 const tintSwatches = $<HTMLDivElement>('#tint-swatches');
 const tintCustom = $<HTMLButtonElement>('#tint-custom');
 
@@ -907,6 +938,7 @@ function applyBackground() {
 
   const oled = colors.theme === 'oled';
   tintRow.classList.toggle('disabled', oled);
+  applyGlass();
   tintNote.textContent = oled ? 'Off in OLED dark' : 'Dark and light mode';
   for (const control of tintRow.querySelectorAll<HTMLButtonElement>('button')) {
     control.disabled = oled;
@@ -1565,6 +1597,7 @@ window.browser.onSettingsChanged((settings) => {
   document.documentElement.dataset.theme = settings.theme;
   colors.theme = settings.theme;
   colors.backgroundTint = settings.backgroundTint;
+  glassWanted = settings.liquidGlass;
   // Also applies the background tint.
   applyAccent(settings.accentColor);
   for (const input of themeInputs) {

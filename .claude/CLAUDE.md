@@ -105,6 +105,12 @@ exactly 8px above and below them.
 - One transition duration, `--duration` (150ms), on color/background/border/
   transform only. The window opening/closing animation is
   not CSS UI motion: it lives in `src/window-animation.ts`.
+- Liquid glass (`body.glass`, Appearance) is for the navigation layer
+  only: sidebar, bars, settings nav and floating panels go see-through over
+  Windows' acrylic material (`applyWindowMaterial` in `main.ts`). Content
+  (web page, new tab page, settings panels) stays solid. Its strength and
+  highlights are the `--glass*` tokens; keep in-page `backdrop-filter` to
+  small floating panels.
 - The one size animation is the sidebar sliding between compact and normal
   (`--sidebar-open` in `index.css`, `toggleSidebar` in `main.ts`). It also
   uses `--duration`; the web page is swapped for a picture while it slides.

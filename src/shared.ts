@@ -428,6 +428,11 @@ export interface Settings {
    * 'accent' to follow the accent color, or #rrggbb.
    */
   backgroundTint: string;
+  /**
+   * Liquid glass: the sidebar and bars become see-through, blurring what's
+   * behind the window (dark and light mode, Windows 11).
+   */
+  liquidGlass: boolean;
   /** Zoom and fade the window when it opens and closes. */
   windowAnimations: boolean;
   /** See BINDINGS_VERSION. */
@@ -479,6 +484,7 @@ export const DEFAULT_SETTINGS: Settings = {
   theme: 'dark',
   accentColor: '#4f7cff',
   backgroundTint: '',
+  liquidGlass: false,
   windowAnimations: true,
   bindingsVersion: BINDINGS_VERSION,
   startup: 'restore',
