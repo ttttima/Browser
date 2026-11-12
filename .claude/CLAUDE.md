@@ -89,7 +89,7 @@ exactly 8px above and below them.
 
 - Only these sizes: 10 (letter badges only), 12 (secondary text, labels),
   13 (all normal UI text), 16 (new-tab search), 24 (page titles), 40 (new-tab headline only,
-  in Redaction 50).
+  in Playwrite AU VIC).
 - Only two weights: 400 and 600.
 
 ### 7. Color and motion
