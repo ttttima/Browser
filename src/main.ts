@@ -631,7 +631,9 @@ function layout() {
   for (const tab of tabs) {
     const visible = pageShouldShow(tab) && !sidebarSliding;
     tab.view.setVisible(visible);
-    if (visible) tab.view.setBounds(bounds);
+    // While the page moves with the sidebar (slidePageLive), it's placed by
+    // that animation, not here.
+    if (visible) tab.view.setBounds(liveBounds ?? bounds);
   }
   samplePageEdgesSoon();
 }
@@ -931,6 +933,9 @@ let sidebarSliding = false;
 let slidePreparing: Promise<void> | null = null;
 let slideEndTimer: ReturnType<typeof setTimeout> | null = null;
 let slideShotShown: (() => void) | null = null;
+/** Where the page is right now while it moves with the sidebar. */
+let liveBounds: Rect | null = null;
+let liveTimer: ReturnType<typeof setInterval> | null = null;
 
 /**
  * Compact <-> normal sidebar. The UI slides the width; the web page is a
@@ -943,6 +948,28 @@ let slideShotShown: (() => void) | null = null;
  */
 async function toggleSidebar() {
   if (slidePreparing) await slidePreparing;
+  // Someone is typing in the web page (it has the keyboard focus): don't
+  // swap it for a picture, which would take the focus and drop keys. Move
+  // the real page along with the sidebar instead.
+  const tab = activeTab();
+  const contents = pageOf(tab);
+  const typingInPage =
+    !sidebarSliding &&
+    !!window &&
+    !!tab &&
+    !!contents &&
+    pageShouldShow(tab) &&
+    (contents.isFocused() || liveTimer !== null) &&
+    !systemPreferences.getAnimationSettings().prefersReducedMotion;
+  if (typingInPage && window) {
+    const from = liveBounds ?? pageBounds(window);
+    settings.sidebarCollapsed = !settings.sidebarCollapsed;
+    saveSettings();
+    sendTabs();
+    sendSettings();
+    slidePageLive(from, pageBounds(window));
+    return;
+  }
   if (!sidebarSliding && window) {
     slidePreparing = coverPageForSlide();
     await slidePreparing;
@@ -958,6 +985,54 @@ async function toggleSidebar() {
   }
   if (slideEndTimer) clearTimeout(slideEndTimer);
   slideEndTimer = setTimeout(() => void endSlide(), SLIDE_MS + 32);
+}
+
+/** CSS's "ease" curve, cubic-bezier(0.25, 0.1, 0.25, 1): the UI's slide. */
+function cssEase(t: number) {
+  const curve = (a: number, b: number, u: number) =>
+    3 * a * u * (1 - u) ** 2 + 3 * b * u * u * (1 - u) + u ** 3;
+  let low = 0;
+  let high = 1;
+  let u = t;
+  for (let i = 0; i < 20; i++) {
+    u = (low + high) / 2;
+    if (curve(0.25, 0.25, u) < t) low = u;
+    else high = u;
+  }
+  return curve(0.1, 1, u);
+}
+
+/**
+ * Moves the visible web page from one place to another on the same curve
+ * and in the same time as the sidebar's CSS slide, keeping it visible and
+ * focused. A new toggle mid-way starts again from where the page is.
+ */
+function slidePageLive(from: Rect, to: Rect) {
+  if (liveTimer) clearInterval(liveTimer);
+  // Starts right away: the UI's slide starts as soon as it hears about it,
+  // and the page has the longer way to go (a native move per step).
+  const start = Date.now();
+  const step = () => {
+    const progress = Math.min(1, Math.max(0, (Date.now() - start) / SLIDE_MS));
+    const eased = cssEase(progress);
+    const mix = (a: number, b: number) => Math.round(a + (b - a) * eased);
+    liveBounds = {
+      x: mix(from.x, to.x),
+      y: mix(from.y, to.y),
+      width: mix(from.width, to.width),
+      height: mix(from.height, to.height),
+    };
+    const page = activeTab()?.view;
+    if (page) page.setBounds(liveBounds);
+    if (progress >= 1) {
+      if (liveTimer) clearInterval(liveTimer);
+      liveTimer = null;
+      liveBounds = null;
+      layout();
+    }
+  };
+  liveBounds = from;
+  liveTimer = setInterval(step, 8);
 }
 
 /** Shows a picture of the web page in its place and hides the real one. */

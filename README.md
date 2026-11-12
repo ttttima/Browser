@@ -71,7 +71,7 @@ you're happy.
 ## Features
 
 - **Vertical tabs** in a sidebar, with a compact icons-only mode it slides
-  into, an optional auto-compact (after 5 seconds unused, opens on hover)
+  into, an optional auto-compact (after 1 second unused, opens on hover)
   and scrolling through tabs with the mouse wheel
 - **Clean new tab page**: just a search bar, nothing else
 - **Quiet address bar**: shows only the site name until you click it
