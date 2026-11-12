@@ -792,8 +792,15 @@ function pagePalette(image: NativeImage): string[] {
 }
 
 let lastPageColors = '';
-let pageColorsTimer: ReturnType<typeof setTimeout> | null = null;
-let pageColorsFollowUp: ReturnType<typeof setTimeout> | null = null;
+/** While the page's colors keep changing: a sample every 250 ms. */
+const PAGE_COLORS_FAST_MS = 250;
+/** While they stay the same: every 750 ms, so a still page costs little. */
+const PAGE_COLORS_SLOW_MS = 750;
+/** How long after a change the fast rate is kept. */
+const PAGE_COLORS_FAST_FOR_MS = 3000;
+let pageColorsLoop: ReturnType<typeof setTimeout> | null = null;
+let pageColorsChangedAt = 0;
+let samplingPageColors = false;
 
 /** Glass is on with "Open website" colors, so page colors are needed. */
 function pageColorsWanted() {
@@ -804,41 +811,90 @@ function pageColorsWanted() {
   );
 }
 
-/**
- * Sends the open website's main colors to the UI, or null when no website
- * is showing (new tab page, settings): the glass then uses the accent.
- * One small picture of the page per change; nothing leaves this computer.
- */
-async function samplePageColors() {
-  if (!pageColorsWanted()) return;
-  const tab = activeTab();
-  const contents = tab ? pageOf(tab) : null;
-  let colors: string[] | null = null;
-  if (tab && contents && pageShouldShow(tab) && !htmlFullScreen) {
-    try {
-      const picture = await contents.capturePage();
-      if (!picture.isEmpty()) colors = pagePalette(picture);
-    } catch {
-      return; // Not painted yet: the follow-up tries again.
-    }
-    if (tab.id !== activeTabId) return;
-  }
-  const key = JSON.stringify(colors);
-  if (key === lastPageColors) return;
-  lastPageColors = key;
-  sendToUi('terra:page-colors', colors);
+/** A palette's identity, ignoring tiny changes (noise, video grain). */
+function paletteKey(colors: string[] | null) {
+  if (!colors) return 'none';
+  return colors
+    .map((hex) =>
+      [1, 3, 5]
+        .map((i) => Math.round(parseInt(hex.slice(i, i + 2), 16) / 12))
+        .join(','),
+    )
+    .join('|');
 }
 
 /**
- * Samples once things settle (not on every resize step), and again a bit
- * later for images and content that paint late.
+ * Sends the open website's main colors to the UI, or null when no website
+ * is showing (new tab page, settings): the glass then uses the accent.
+ * One small picture of the visible page; nothing leaves this computer.
+ */
+async function samplePageColors() {
+  if (!pageColorsWanted() || samplingPageColors) return;
+  if (!window || window.isDestroyed() || window.isMinimized()) return;
+  if (!window.isVisible()) return;
+  samplingPageColors = true;
+  try {
+    const tab = activeTab();
+    const contents = tab ? pageOf(tab) : null;
+    let colors: string[] | null = null;
+    if (tab && contents && pageShouldShow(tab) && !htmlFullScreen) {
+      // Covered by other windows, Chromium stops drawing the page and a
+      // picture would be a blank gray: keep the last real colors instead.
+      // A busy page may answer late: never let it hold up the loop.
+      const shown = await Promise.race([
+        contents
+          .executeJavaScript('document.visibilityState', false)
+          .catch(() => 'hidden'),
+        wait(250).then(() => 'busy'),
+      ]);
+      if (shown !== 'visible') return;
+      // Times out (null) if no picture comes: keep the last colors too.
+      const picture = await capture(contents);
+      if (!picture || tab.id !== activeTabId) return;
+      colors = pagePalette(picture);
+    }
+    const key = paletteKey(colors);
+    if (key === lastPageColors) return;
+    lastPageColors = key;
+    pageColorsChangedAt = Date.now();
+    sendToUi('terra:page-colors', colors);
+  } finally {
+    samplingPageColors = false;
+  }
+}
+
+/**
+ * Real time: keeps sampling while "Open website" glass is in use, fast
+ * while the colors are changing (scrolling, video, loading) and slower
+ * once they settle. Stops by itself when the option is off.
+ */
+function runPageColorsLoop() {
+  if (pageColorsLoop) clearTimeout(pageColorsLoop);
+  pageColorsLoop = null;
+  if (!pageColorsWanted() || !window || window.isDestroyed()) return;
+  const changing = Date.now() - pageColorsChangedAt < PAGE_COLORS_FAST_FOR_MS;
+  pageColorsLoop = setTimeout(
+    () => {
+      void samplePageColors().finally(runPageColorsLoop);
+    },
+    changing ? PAGE_COLORS_FAST_MS : PAGE_COLORS_SLOW_MS,
+  );
+}
+
+/**
+ * Something changed (a page loaded, another tab, a resize): sample almost
+ * right away and keep the fast rate for a while.
  */
 function samplePageColorsSoon() {
-  if (!pageColorsWanted()) return;
-  if (pageColorsTimer) clearTimeout(pageColorsTimer);
-  if (pageColorsFollowUp) clearTimeout(pageColorsFollowUp);
-  pageColorsTimer = setTimeout(() => void samplePageColors(), 120);
-  pageColorsFollowUp = setTimeout(() => void samplePageColors(), 1500);
+  if (!pageColorsWanted()) {
+    runPageColorsLoop(); // stops it
+    return;
+  }
+  pageColorsChangedAt = Date.now();
+  if (pageColorsLoop) clearTimeout(pageColorsLoop);
+  pageColorsLoop = setTimeout(() => {
+    void samplePageColors().finally(runPageColorsLoop);
+  }, 80);
 }
 
 function activateTab(id: number) {

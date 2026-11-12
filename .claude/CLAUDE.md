@@ -109,8 +109,9 @@ exactly 8px above and below them.
   window's own background becomes frosted glass with soft light
   (`--glass*` tokens), drawn with plain gradients. Its three colors
   (`--glass-1/2/3`) come from the accent, the background tint, or the open
-  website (`pagePalette` in `main.ts`, from one small local picture of the
-  page). The window is never see-through, and controls, cards and the web
+  website (`pagePalette` in `main.ts`): sampled live from small local
+  pictures of the page, every 250 ms while its colors change and 750 ms
+  when still, skipped while the window is covered or minimized. The window is never see-through, and controls, cards and the web
   page don't change.
 - The one size animation is the sidebar sliding between compact and normal
   (`--sidebar-open` in `index.css`, `toggleSidebar` in `main.ts`). It also
