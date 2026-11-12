@@ -24,6 +24,7 @@ import {
   type DefaultBrowserState,
   type DownloadAction,
   type DownloadInfo,
+  type GlassColors,
   type HistoryEntry,
   type PanelPage,
   SEARCH_ENGINES,
@@ -788,7 +789,7 @@ function fullHex(value: string) {
   const color = value.trim().toLowerCase();
   if (/^#[0-9a-f]{6}$/.test(color)) return color;
   if (/^#[0-9a-f]{3}$/.test(color)) {
-    return `#${[...color.slice(1)].map((c) => c + c).join('')}`;
+    return `#${Array.from(color.slice(1), (c) => c + c).join('')}`;
   }
   return null;
 }
@@ -886,19 +887,66 @@ const tintNote = $<HTMLElement>('#tint-note');
 const glassRow = $<HTMLLabelElement>('#glass-row');
 const glassNote = $<HTMLElement>('#glass-note');
 const liquidGlass = $<HTMLInputElement>('#setting-liquid-glass');
+const glassColorsRow = $<HTMLDivElement>('#glass-colors-row');
+const glassColorsNote = $<HTMLElement>('#glass-colors-note');
+const glassColorsSelect = $<HTMLSelectElement>('#setting-glass-colors');
 let glassWanted = false;
+let glassSource: GlassColors = 'accent';
+/** The open website's main colors (from main), or null when none shows. */
+let pageColors: string[] | null = null;
 
 /** The liquid glass background (index.css body.glass); OLED stays black. */
 function applyGlass() {
   const oled = colors.theme === 'oled';
-  document.body.classList.toggle('glass', glassWanted && !oled);
+  const on = glassWanted && !oled;
+  document.body.classList.toggle('glass', on);
   glassRow.classList.toggle('disabled', oled);
   liquidGlass.disabled = oled;
   liquidGlass.checked = glassWanted;
   glassNote.textContent = oled
     ? 'Off in OLED dark'
     : 'Frosted glass background with soft light';
+
+  // Its colors: the accent (index.css default), the background tint, or
+  // the open website's main colors. Without a tint or a website showing,
+  // the accent.
+  glassColorsRow.hidden = !on;
+  glassColorsSelect.value = glassSource;
+  const tint = activeTint(colors);
+  let main: string | null = null;
+  let extra: string[] = [];
+  if (glassSource === 'tint') {
+    main = tint;
+    glassColorsNote.textContent = tint
+      ? 'The soft light uses your Background tint'
+      : 'No Background tint picked: using the accent';
+  } else if (glassSource === 'page') {
+    main = pageColors?.[0] ?? null;
+    extra = pageColors?.slice(1) ?? [];
+    glassColorsNote.textContent = pageColors
+      ? "The soft light takes the open website's colors"
+      : 'No website open here: using the accent';
+  } else {
+    glassColorsNote.textContent = 'The soft light uses your accent color';
+  }
+  const style = document.body.style;
+  const set = (name: string, value: string | null | undefined) =>
+    value ? style.setProperty(name, value) : style.removeProperty(name);
+  set('--glass-color', main);
+  set('--glass-color-2', extra[0]);
+  set('--glass-color-3', extra[1]);
 }
+
+glassColorsSelect.addEventListener('change', () => {
+  glassSource = glassColorsSelect.value as GlassColors;
+  applyGlass();
+  window.browser.updateSettings({ glassColors: glassSource });
+});
+
+window.terra.on<string[] | null>('terra:page-colors', (colors) => {
+  pageColors = colors?.length ? colors : null;
+  applyGlass();
+});
 
 liquidGlass.addEventListener('change', () => {
   glassWanted = liquidGlass.checked;
@@ -1595,6 +1643,7 @@ window.browser.onSettingsChanged((settings) => {
   colors.theme = settings.theme;
   colors.backgroundTint = settings.backgroundTint;
   glassWanted = settings.liquidGlass;
+  glassSource = settings.glassColors;
   // Also applies the background tint.
   applyAccent(settings.accentColor);
   for (const input of themeInputs) {

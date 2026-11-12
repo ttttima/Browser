@@ -106,9 +106,12 @@ exactly 8px above and below them.
   transform only. The window opening/closing animation is
   not CSS UI motion: it lives in `src/window-animation.ts`.
 - Liquid glass (`body.glass`, Appearance) only changes the background: the
-  window's own background becomes frosted glass with soft light in the
-  accent's hues (`--glass*` tokens), drawn with plain gradients. The window
-  is never see-through, and controls, cards and the web page don't change.
+  window's own background becomes frosted glass with soft light
+  (`--glass*` tokens), drawn with plain gradients. Its three colors
+  (`--glass-1/2/3`) come from the accent, the background tint, or the open
+  website (`pagePalette` in `main.ts`, from one small local picture of the
+  page). The window is never see-through, and controls, cards and the web
+  page don't change.
 - The one size animation is the sidebar sliding between compact and normal
   (`--sidebar-open` in `index.css`, `toggleSidebar` in `main.ts`). It also
   uses `--duration`; the web page is swapped for a picture while it slides.

@@ -96,7 +96,7 @@ you're happy.
 - **Color modes**: dark, light and OLED (pure black), with any accent
   color, and a background tint in any color for dark and light mode
 - **Liquid glass**: an optional frosted glass background with soft light
-  in your accent's colors
+  in the colors of your accent, your background tint or the open website
 - **Force dark mode**: makes every website dark, without flashing
 - **Protected video and music** (DRM) through Google's Widevine, which
   downloads by itself on first launch

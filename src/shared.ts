@@ -37,6 +37,11 @@ export interface TabsState {
 }
 
 /** Background colors at the website's left and top edges (#rrggbb). */
+/** Where the liquid glass light takes its colors from. */
+export type GlassColors = 'accent' | 'tint' | 'page';
+
+export const GLASS_COLORS: GlassColors[] = ['accent', 'tint', 'page'];
+
 export interface PageEdges {
   left: string | null;
   top: string | null;
@@ -433,6 +438,11 @@ export interface Settings {
    * light in the accent's colors under it (dark and light mode).
    */
   liquidGlass: boolean;
+  /**
+   * The glass light's colors: the accent color, the background tint, or
+   * the main colors of the open website.
+   */
+  glassColors: GlassColors;
   /** Zoom and fade the window when it opens and closes. */
   windowAnimations: boolean;
   /** See BINDINGS_VERSION. */
@@ -485,6 +495,7 @@ export const DEFAULT_SETTINGS: Settings = {
   accentColor: '#4f7cff',
   backgroundTint: '',
   liquidGlass: false,
+  glassColors: 'accent',
   windowAnimations: true,
   bindingsVersion: BINDINGS_VERSION,
   startup: 'restore',

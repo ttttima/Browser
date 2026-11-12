@@ -207,7 +207,8 @@ body.sidebar-narrow {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  body {
+  body,
+  body.glass {
     transition: none;
   }
 }
@@ -2220,35 +2221,57 @@ body.drop-target::after {
    Kept cheap: it's all plain gradients in the window's own background,
    painted once (no blur filters, no extra layers, no animation), so it
    costs nothing while browsing. */
+/* The three colors of the light under the glass, registered so a change
+   (another tab, another tint) fades instead of jumping. renderer.ts sets
+   --glass-color (and for websites --glass-color-2 / -3); without them it's
+   the accent and two neighbouring hues. */
+@property --glass-1 {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: transparent;
+}
+
+@property --glass-2 {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: transparent;
+}
+
+@property --glass-3 {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: transparent;
+}
+
 body.glass,
 body.glass.smooth-dividers {
+  --glass-1: var(--glass-color, var(--accent));
+  --glass-2: var(--glass-color-2, oklch(from var(--glass-1) l c calc(h + 70)));
+  --glass-3: var(--glass-color-3, oklch(from var(--glass-1) l c calc(h - 50)));
   /* Hover over glass: a light veil instead of a solid chip. */
   --hover: color-mix(in srgb, var(--text) 8%, transparent);
+  transition:
+    --sidebar-open var(--duration),
+    --glass-1 var(--duration),
+    --glass-2 var(--duration),
+    --glass-3 var(--duration);
   background:
     /* the frosted sheen falling across the glass */
     linear-gradient(160deg, var(--glass-sheen), transparent 40%),
-    /* soft light under the glass, in the accent and two neighbouring hues */
+    /* soft light under the glass, in its three colors */
     radial-gradient(
         60% 55% at 8% 12%,
-        color-mix(in srgb, var(--accent) var(--glass-light), transparent),
+        color-mix(in srgb, var(--glass-1) var(--glass-light), transparent),
         transparent 70%
       ),
     radial-gradient(
       55% 50% at 92% 88%,
-      color-mix(
-        in srgb,
-        oklch(from var(--accent) l c calc(h + 70)) var(--glass-light),
-        transparent
-      ),
+      color-mix(in srgb, var(--glass-2) var(--glass-light), transparent),
       transparent 70%
     ),
     radial-gradient(
       45% 40% at 70% 6%,
-      color-mix(
-        in srgb,
-        oklch(from var(--accent) l c calc(h - 50)) var(--glass-light),
-        transparent
-      ),
+      color-mix(in srgb, var(--glass-3) var(--glass-light), transparent),
       transparent 70%
     ),
     var(--panel);

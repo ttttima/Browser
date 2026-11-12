@@ -95,6 +95,8 @@ import {
 } from './library';
 import {
   DEFAULT_SETTINGS,
+  GLASS_COLORS,
+  type GlassColors,
   SEARCH_ENGINES,
   themeBackground,
   THEMES,
@@ -323,6 +325,9 @@ function sanitizeSettings(value: Partial<Settings>): Settings {
         ? value.accentColor.toLowerCase()
         : DEFAULT_SETTINGS.accentColor,
     liquidGlass: value.liquidGlass === true,
+    glassColors: GLASS_COLORS.includes(value.glassColors as GlassColors)
+      ? (value.glassColors as GlassColors)
+      : DEFAULT_SETTINGS.glassColors,
     backgroundTint:
       value.backgroundTint === 'accent' ||
       (typeof value.backgroundTint === 'string' &&
@@ -708,6 +713,132 @@ async function samplePageEdges() {
 function samplePageEdgesSoon() {
   void samplePageEdges();
   setTimeout(() => void samplePageEdges(), 600);
+  samplePageColorsSoon();
+}
+
+// ------------------------------------------------- liquid glass page colors
+
+/** Hue in degrees (0-360) of an RGB color. */
+function hueOf(r: number, g: number, b: number) {
+  const max = Math.max(r, g, b);
+  const delta = max - Math.min(r, g, b);
+  if (!delta) return 0;
+  const h =
+    max === r
+      ? ((g - b) / delta) % 6
+      : max === g
+        ? (b - r) / delta + 2
+        : (r - g) / delta + 4;
+  return (h * 60 + 360) % 360;
+}
+
+/**
+ * The page's main colors for the liquid glass light: the vivid colors that
+ * cover the most of it, up to three with clearly different hues. A page
+ * with none (plain white or black) gives just its main color.
+ */
+function pagePalette(image: NativeImage): string[] {
+  const bitmap = image.resize({ width: 48, quality: 'good' }).toBitmap(); // BGRA
+  const buckets = new Map<
+    number,
+    { n: number; r: number; g: number; b: number }
+  >();
+  let total = 0;
+  for (let i = 0; i + 3 < bitmap.length; i += 4) {
+    const b = bitmap[i];
+    const g = bitmap[i + 1];
+    const r = bitmap[i + 2];
+    const key = ((r >> 4) << 8) | ((g >> 4) << 4) | (b >> 4);
+    const bucket = buckets.get(key) ?? { n: 0, r: 0, g: 0, b: 0 };
+    bucket.n++;
+    bucket.r += r;
+    bucket.g += g;
+    bucket.b += b;
+    buckets.set(key, bucket);
+    total++;
+  }
+  const colors = [...buckets.values()].map((bucket) => {
+    const r = bucket.r / bucket.n;
+    const g = bucket.g / bucket.n;
+    const b = bucket.b / bucket.n;
+    const max = Math.max(r, g, b);
+    return {
+      r,
+      g,
+      b,
+      n: bucket.n,
+      saturation: max ? (max - Math.min(r, g, b)) / max : 0,
+      value: max / 255,
+      hue: hueOf(r, g, b),
+    };
+  });
+  const hex = (c: { r: number; g: number; b: number }) =>
+    `#${[c.r, c.g, c.b].map((v) => Math.round(v).toString(16).padStart(2, '0')).join('')}`;
+  const vivid = colors
+    .filter((c) => c.saturation > 0.25 && c.value > 0.2 && c.n >= total * 0.002)
+    .sort((a, b) => b.n * b.saturation - a.n * a.saturation);
+  const picked: typeof colors = [];
+  for (const color of vivid) {
+    const apart = picked.every((p) => {
+      const distance = Math.abs(p.hue - color.hue);
+      return Math.min(distance, 360 - distance) > 30;
+    });
+    if (apart) picked.push(color);
+    if (picked.length === 3) break;
+  }
+  if (picked.length) return picked.map(hex);
+  const main = colors.sort((a, b) => b.n - a.n)[0];
+  return main ? [hex(main)] : [];
+}
+
+let lastPageColors = '';
+let pageColorsTimer: ReturnType<typeof setTimeout> | null = null;
+let pageColorsFollowUp: ReturnType<typeof setTimeout> | null = null;
+
+/** Glass is on with "Open website" colors, so page colors are needed. */
+function pageColorsWanted() {
+  return (
+    settings.liquidGlass &&
+    settings.glassColors === 'page' &&
+    settings.theme !== 'oled'
+  );
+}
+
+/**
+ * Sends the open website's main colors to the UI, or null when no website
+ * is showing (new tab page, settings): the glass then uses the accent.
+ * One small picture of the page per change; nothing leaves this computer.
+ */
+async function samplePageColors() {
+  if (!pageColorsWanted()) return;
+  const tab = activeTab();
+  const contents = tab ? pageOf(tab) : null;
+  let colors: string[] | null = null;
+  if (tab && contents && pageShouldShow(tab) && !htmlFullScreen) {
+    try {
+      const picture = await contents.capturePage();
+      if (!picture.isEmpty()) colors = pagePalette(picture);
+    } catch {
+      return; // Not painted yet: the follow-up tries again.
+    }
+    if (tab.id !== activeTabId) return;
+  }
+  const key = JSON.stringify(colors);
+  if (key === lastPageColors) return;
+  lastPageColors = key;
+  sendToUi('terra:page-colors', colors);
+}
+
+/**
+ * Samples once things settle (not on every resize step), and again a bit
+ * later for images and content that paint late.
+ */
+function samplePageColorsSoon() {
+  if (!pageColorsWanted()) return;
+  if (pageColorsTimer) clearTimeout(pageColorsTimer);
+  if (pageColorsFollowUp) clearTimeout(pageColorsFollowUp);
+  pageColorsTimer = setTimeout(() => void samplePageColors(), 120);
+  pageColorsFollowUp = setTimeout(() => void samplePageColors(), 1500);
 }
 
 function activateTab(id: number) {
@@ -2374,6 +2505,8 @@ function createWindow(urls: string[] = []) {
     sendTabs();
     sendState();
     sendNotice();
+    lastPageColors = '';
+    samplePageColorsSoon();
   });
 
   win.on('closed', () => {
@@ -2546,6 +2679,9 @@ function setUpIpc() {
     saveSettings();
     sendSettings();
     if (themeBackground(settings) !== beforeBackground) applyTheme();
+    // Switched to "Open website" glass colors: pick them up right away.
+    lastPageColors = '';
+    samplePageColorsSoon();
     if (settings.forceDark !== beforeDark) updateForcedDarkAll();
     if (animationsOn()) prepareOverlay();
     else destroyOverlay();
