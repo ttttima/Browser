@@ -978,6 +978,8 @@ function createTab(
   options: {
     activate?: boolean;
     nextToActive?: boolean;
+    /** First of the unpinned tabs (scrolling past the top). */
+    atTop?: boolean;
     isPrivate?: boolean;
     pinned?: boolean;
     /** Restored tab: show it, but load only when it's opened. */
@@ -1026,7 +1028,7 @@ function createTab(
 
   const activeIndex = tabs.findIndex((t) => t.id === activeTabId);
   const pinnedCount = tabs.filter((t) => t.pinned).length;
-  if (tab.pinned) {
+  if (tab.pinned || options.atTop) {
     tabs.splice(pinnedCount, 0, tab);
   } else if (nextToActive && activeIndex !== -1) {
     // Like Chrome: links open right below the tab they came from.
@@ -1139,6 +1141,35 @@ function newTab() {
   // A loading website can grab keyboard focus; keep it in the address bar.
   if (tab && !tab.isNewTab) tab.focusAddressOnLoad = true;
   focusAddressBar();
+}
+
+/** The empty new tab page "Scroll through tabs" opened past the top. */
+let scrolledNewTabId: number | null = null;
+
+/**
+ * "Scroll through tabs": one wheel step over the sidebar (-1 up, 1 down).
+ * Scrolling up past the first tab opens a fresh new tab page (search) at
+ * the top; scrolling on without using it tidies it away again, so no
+ * empty tabs pile up.
+ */
+function scrollTabs(step: number) {
+  const index = tabs.findIndex((t) => t.id === activeTabId);
+  const current = tabs[index];
+  if (!current) return;
+  if (step < 0 && index === 0) {
+    if (current.isNewTab) return; // already on a fresh new tab page
+    const tab = createTab(null, { atTop: true });
+    scrolledNewTabId = tab?.id ?? null;
+    focusAddressBar();
+    return;
+  }
+  const next = tabs[index + step];
+  if (!next) return;
+  activateTab(next.id);
+  if (current.id === scrolledNewTabId) {
+    scrolledNewTabId = null;
+    if (current.isNewTab) closeTab(current.id);
+  }
 }
 
 function reopenClosedTab() {
@@ -2817,6 +2848,9 @@ function setUpIpc() {
     typeof value === 'string' && value.length <= max;
 
   on('terra:slide-shot-ready', () => slideShotShown?.());
+  on('terra:scroll-tabs', (step) => {
+    if (step === 1 || step === -1) scrollTabs(step);
+  });
   // Auto-compact sidebar (ui-auto-compact.ts) asks for a state, not a flip.
   on('terra:sidebar-set', (collapsed) => {
     if (typeof collapsed !== 'boolean' || !settings.autoCompactSidebar) return;

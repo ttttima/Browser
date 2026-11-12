@@ -593,22 +593,20 @@ let wheelDelta = 0;
 /**
  * With "Scroll through tabs" on, the wheel over the sidebar moves to the next
  * or previous tab. Deltas are added up so one mouse notch = one tab, and a
- * touchpad doesn't fly through every tab at once.
+ * touchpad doesn't fly through every tab at once. It stops at the last tab;
+ * past the first one it opens a new tab page to search from (main.ts).
  */
 $('#sidebar').addEventListener(
   'wheel',
   (event) => {
-    if (!scrollTabsEnabled || tabOrder.length < 2) return;
+    if (!scrollTabsEnabled || tabOrder.length === 0) return;
     event.preventDefault();
     wheelDelta += event.deltaY;
     const NOTCH = 100;
     if (Math.abs(wheelDelta) < NOTCH) return;
     const step = Math.sign(wheelDelta);
     wheelDelta = 0;
-    const index = tabOrder.indexOf(activeTabId ?? -1);
-    const next = tabOrder[index + step];
-    // Stop at the first and last tab instead of wrapping around.
-    if (next !== undefined) window.browser.activateTab(next);
+    window.terra.send('terra:scroll-tabs', step);
   },
   { passive: false },
 );
