@@ -60,6 +60,9 @@ exactly 8px above and below them.
 - `--radius-lg` 12: cards
 - `--radius-full`: only for things that are round by nature (switches,
   color swatches, the new-tab search pill)
+- `--radius-page` 35: the web page's corners, a rounded card next to the
+  sidebar and toolbar. The owner's choice and the one value off the 4px
+  grid; it must equal `PAGE_RADIUS` in `main.ts`.
 - A shape inside another uses `outer radius - padding` so curves stay parallel.
 
 ### 4. Shared axes and lines
@@ -108,6 +111,7 @@ exactly 8px above and below them.
 
 ### 8. Sync with main.ts
 
-`TOOLBAR_HEIGHT`, `SIDEBAR_WIDTH` and `SIDEBAR_COLLAPSED_WIDTH` in
-`src/main.ts` position the web page and must equal `--control-lg`,
-`--sidebar-width` and `--sidebar-collapsed` in `src/index.css`.
+`TOOLBAR_HEIGHT`, `SIDEBAR_WIDTH`, `SIDEBAR_COLLAPSED_WIDTH` and
+`PAGE_RADIUS` in `src/main.ts` position and shape the web page and must
+equal `--control-lg`, `--sidebar-width`, `--sidebar-collapsed` and
+`--radius-page` in `src/index.css`.

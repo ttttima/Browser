@@ -161,6 +161,8 @@ app.userAgentFallback = app.userAgentFallback
 const TOOLBAR_HEIGHT = 48;
 const SIDEBAR_WIDTH = 240;
 const SIDEBAR_COLLAPSED_WIDTH = 48;
+/** Rounded corners of the web page (= --radius-page in index.css). */
+const PAGE_RADIUS = 35;
 
 const APP_NAME = 'Terra';
 const MAX_CLOSED_TABS = 25;
@@ -630,6 +632,9 @@ function layout() {
 
   for (const tab of tabs) {
     const visible = pageShouldShow(tab) && !sidebarSliding;
+    // A rounded card next to the sidebar and toolbar; edge to edge in
+    // video fullscreen.
+    tab.view.setBorderRadius(htmlFullScreen ? 0 : PAGE_RADIUS);
     tab.view.setVisible(visible);
     // While the page moves with the sidebar (slidePageLive), it's placed by
     // that animation, not here.

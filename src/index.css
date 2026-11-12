@@ -32,6 +32,10 @@
   --radius: 8px;
   --radius-lg: 12px;
   --radius-full: 999px;
+  /* The web page's corners: a rounded card next to the sidebar and
+     toolbar. Chosen by the owner, not on the 4px grid on purpose. Must
+     match PAGE_RADIUS in main.ts. */
+  --radius-page: 35px;
 
   /* Type */
   --text-xs: 10px;
@@ -149,7 +153,10 @@ body {
   margin: 0;
   padding: 0;
   overflow: hidden;
-  background: var(--bg);
+  /* The panel color, so it shows around the web page's rounded corners
+     and the page sits in the sidebar and toolbar like a card. Our own
+     pages (new tab, settings) paint --bg themselves. */
+  background: var(--panel);
   color: var(--text);
   font-family: system-ui, sans-serif;
   font-size: var(--text-md);
@@ -214,6 +221,7 @@ body.sidebar-sliding .tab .tab-audio {
   grid-row: 3;
   grid-column: 2;
   overflow: hidden;
+  border-radius: var(--radius-page);
   background: var(--edge);
   pointer-events: none;
 }
@@ -1315,6 +1323,7 @@ body.start-open {
   display: none;
   grid-row: 3;
   grid-column: 2;
+  border-radius: var(--radius-page);
   pointer-events: none;
 }
 
