@@ -40,7 +40,9 @@ precision highp float;
 uniform vec2 uSize;        // canvas size in device pixels
 uniform float uDpr;        // device pixels per CSS pixel
 uniform vec3 uBase;
+uniform float uBaseAlpha;  // 1, or the translucent "behind" layer
 uniform float uGlass;
+uniform float uPools;      // 0 for "behind": its colors come from behind
 uniform vec4 uPool[3];     // rgb, alpha
 uniform vec4 uPoolGeo[3];  // center x, y, radius x, y (CSS px)
 uniform vec4 uSheen;       // rgb, alpha
@@ -71,17 +73,19 @@ float hash(vec2 p) {
   return fract((q.x + q.y) * q.z);
 }
 
-vec3 over(vec3 under, vec3 color, float alpha) {
-  return color * alpha + under * (1.0 - alpha);
+// Premultiplied "source over": a straight color at some alpha on top.
+vec4 over(vec4 under, vec3 color, float alpha) {
+  return vec4(color * alpha, alpha) + under * (1.0 - alpha);
 }
 
 void main() {
   vec2 device = vec2(gl_FragCoord.x, uSize.y - gl_FragCoord.y);
   vec2 p = device / uDpr;
-  vec3 color = uBase;
+  vec4 color = vec4(uBase * uBaseAlpha, uBaseAlpha);
 
   if (uGlass > 0.5) {
     for (int i = 2; i >= 0; i--) {
+      if (uPools < 0.5) break;
       vec2 d = (p - uPoolGeo[i].xy) / uPoolGeo[i].zw;
       float t = length(d);
       color = over(color, uPool[i].rgb, uPool[i].a * max(0.0, 1.0 - t / ${POOL_END.toFixed(2)}));
@@ -95,7 +99,7 @@ void main() {
     if (uGlowRect[i].z <= 0.0) continue;
     vec4 shape = uGlowShape[i];
     if (roundRect(p, uGlowRect[i], shape.x) <= 0.0) {
-      color = uGlowColor[i];
+      color = vec4(uGlowColor[i], 1.0);
     } else {
       vec4 grown = uGlowRect[i] + vec4(-shape.y, -shape.y, 2.0 * shape.y, 2.0 * shape.y);
       float d = roundRect(p, grown, shape.w);
@@ -106,7 +110,7 @@ void main() {
 
   // Dither before the 8-bit rounding: triangular noise of +-1 level.
   float grain = hash(gl_FragCoord.xy) + hash(gl_FragCoord.xy + vec2(113.7, 57.3)) - 1.0;
-  gl_FragColor = vec4(color + grain / 255.0, 1.0);
+  gl_FragColor = vec4(color.rgb + grain / 255.0 * color.a, color.a);
 }
 `;
 
@@ -116,11 +120,12 @@ const uniforms = new Map<string, WebGLUniformLocation | null>();
 
 function setUp(): boolean {
   gl = canvas.getContext('webgl', {
-    alpha: false,
+    // Translucent output for "behind the window" glass (premultiplied).
+    alpha: true,
     antialias: false,
     depth: false,
     stencil: false,
-    premultipliedAlpha: false,
+    premultipliedAlpha: true,
     preserveDrawingBuffer: false,
     powerPreference: 'low-power',
   });
@@ -197,7 +202,9 @@ interface State {
   width: number;
   height: number;
   base: number[];
+  baseAlpha: number;
   glass: boolean;
+  behind: boolean;
   pools: number[][];
   light: number;
   sheen: number[];
@@ -211,6 +218,7 @@ function readState(): State {
   const style = getComputedStyle(body);
   const value = (name: string) => style.getPropertyValue(name);
   const glass = body.classList.contains('glass');
+  const behind = glass && body.classList.contains('glass-behind');
   const smooth = body.classList.contains('smooth-dividers');
   const glows: Glow[] = [];
   if (smooth) {
@@ -240,7 +248,9 @@ function readState(): State {
     width: innerWidth,
     height: innerHeight,
     base: rgba(value('--panel')),
+    baseAlpha: behind ? parseFloat(value('--glass-behind')) / 100 || 0.3 : 1,
     glass,
+    behind,
     pools: glass
       ? ['--glass-1', '--glass-2', '--glass-3'].map((name) => rgba(value(name)))
       : [],
@@ -267,7 +277,9 @@ function draw(force = false) {
   gl.uniform2f(uniform('uSize'), canvas.width, canvas.height);
   gl.uniform1f(uniform('uDpr'), dpr);
   gl.uniform3f(uniform('uBase'), state.base[0], state.base[1], state.base[2]);
+  gl.uniform1f(uniform('uBaseAlpha'), state.baseAlpha);
   gl.uniform1f(uniform('uGlass'), state.glass ? 1 : 0);
+  gl.uniform1f(uniform('uPools'), state.behind ? 0 : 1);
   if (state.glass) {
     POOLS.forEach(([x, y, rx, ry], i) => {
       const [r, g, b, a] = state.pools[i];

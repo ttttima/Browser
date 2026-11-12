@@ -37,10 +37,14 @@ export interface TabsState {
 }
 
 /** Background colors at the website's left and top edges (#rrggbb). */
-/** Where the liquid glass light takes its colors from. */
-export type GlassColors = 'accent' | 'tint' | 'page';
+/**
+ * Where the liquid glass takes its colors from: the accent color, whatever
+ * is behind the window (desktop, other apps; Windows blurs it), or the
+ * open website.
+ */
+export type GlassColors = 'accent' | 'behind' | 'page';
 
-export const GLASS_COLORS: GlassColors[] = ['accent', 'tint', 'page'];
+export const GLASS_COLORS: GlassColors[] = ['accent', 'behind', 'page'];
 
 export interface PageEdges {
   left: string | null;
@@ -439,8 +443,8 @@ export interface Settings {
    */
   liquidGlass: boolean;
   /**
-   * The glass light's colors: the accent color, the background tint, or
-   * the main colors of the open website.
+   * The glass's colors: the accent color, what's behind the window, or the
+   * main colors of the open website.
    */
   glassColors: GlassColors;
   /** Zoom and fade the window when it opens and closes. */

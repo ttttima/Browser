@@ -75,6 +75,7 @@ import {
   defaultBrowserSupported,
   isDefaultBrowser,
   openDefaultAppsSettings,
+  FILE_EXTENSIONS,
   registerAsBrowser,
   unregisterAsBrowser,
 } from './default-browser';
@@ -325,9 +326,13 @@ function sanitizeSettings(value: Partial<Settings>): Settings {
         ? value.accentColor.toLowerCase()
         : DEFAULT_SETTINGS.accentColor,
     liquidGlass: value.liquidGlass === true,
-    glassColors: GLASS_COLORS.includes(value.glassColors as GlassColors)
-      ? (value.glassColors as GlassColors)
-      : DEFAULT_SETTINGS.glassColors,
+    // "Background tint" became "Behind the window".
+    glassColors:
+      (value.glassColors as string | undefined) === 'tint'
+        ? 'behind'
+        : GLASS_COLORS.includes(value.glassColors as GlassColors)
+          ? (value.glassColors as GlassColors)
+          : DEFAULT_SETTINGS.glassColors,
     backgroundTint:
       value.backgroundTint === 'accent' ||
       (typeof value.backgroundTint === 'string' &&
@@ -347,13 +352,36 @@ function sanitizeSettings(value: Partial<Settings>): Settings {
   };
 }
 
+/**
+ * Liquid glass showing what's behind the window: Windows' acrylic material,
+ * which blurs the desktop and apps behind Terra live (the system compositor
+ * does it, so moving the window or anything changing behind it updates by
+ * itself, at no cost to Terra). Not in OLED dark, and not when Windows'
+ * transparency effects are off.
+ */
+function glassBehind() {
+  return (
+    settings.liquidGlass &&
+    settings.glassColors === 'behind' &&
+    settings.theme !== 'oled' &&
+    process.platform === 'win32' &&
+    !nativeTheme.prefersReducedTransparency
+  );
+}
+
+/** The window's own background: acrylic for "behind" glass, else solid. */
+function applyWindowMaterial(win: BrowserWindow) {
+  if (win.isDestroyed()) return;
+  const behind = glassBehind();
+  win.setBackgroundMaterial(behind ? 'acrylic' : 'none');
+  win.setBackgroundColor(behind ? '#00000000' : themeBackground(settings));
+}
+
 /** Applies the color mode to the window and tells websites about it. */
 function applyTheme() {
   // Websites that support dark mode (prefers-color-scheme) follow our theme.
   nativeTheme.themeSource = settings.theme === 'light' ? 'light' : 'dark';
-  if (window && !window.isDestroyed()) {
-    window.setBackgroundColor(themeBackground(settings));
-  }
+  if (window && !window.isDestroyed()) applyWindowMaterial(window);
   for (const tab of tabs) {
     if (pageOf(tab)) {
       tab.view.setBackgroundColor(tabBackground());
@@ -2347,14 +2375,27 @@ async function lookForUpdate(announce: boolean) {
 
 // ---------------------------------------------------------------- window
 
-/** Web links in a command line (Windows passes clicked links this way). */
+/**
+ * Web links and files in a command line (Windows passes clicked links and
+ * "Open with" files this way).
+ */
 function linksFromArgs(argv: string[]): string[] {
   return argv
     .slice(1)
-    .filter(isWebUrl)
+    .filter((arg) => isWebUrl(arg) || isOpenableFile(arg))
     .map((arg) => toUrl(arg, false))
     .filter((url): url is string => url !== null)
     .slice(0, 20);
+}
+
+function isOpenableFile(arg: string) {
+  if (!/^[a-z]:[\\/]/i.test(arg)) return false;
+  if (!FILE_EXTENSIONS.includes(path.extname(arg).toLowerCase())) return false;
+  try {
+    return fs.statSync(arg).isFile();
+  } catch {
+    return false;
+  }
 }
 
 /** Opens links from another app in new tabs and brings Terra to the front. */
@@ -2489,7 +2530,8 @@ function createWindow(urls: string[] = []) {
     ...(fs.existsSync(path.join(app.getAppPath(), 'assets', 'icon.png'))
       ? { icon: path.join(app.getAppPath(), 'assets', 'icon.png') }
       : {}),
-    backgroundColor: themeBackground(settings),
+    backgroundColor: glassBehind() ? '#00000000' : themeBackground(settings),
+    backgroundMaterial: glassBehind() ? 'acrylic' : 'none',
     // Shown once the UI has painted, with the opening animation.
     show: false,
     autoHideMenuBar: true,
@@ -2729,12 +2771,14 @@ function setUpIpc() {
       return;
     }
     const before = settings.sidebarCollapsed;
-    const beforeBackground = themeBackground(settings);
+    const beforeBackground = `${themeBackground(settings)} ${glassBehind()}`;
     const beforeDark = settings.forceDark;
     settings = sanitizeSettings({ ...settings, ...changes });
     saveSettings();
     sendSettings();
-    if (themeBackground(settings) !== beforeBackground) applyTheme();
+    if (`${themeBackground(settings)} ${glassBehind()}` !== beforeBackground) {
+      applyTheme();
+    }
     // Switched to "Open website" glass colors: pick them up right away.
     lastPageColors = '';
     samplePageColorsSoon();
@@ -3028,6 +3072,10 @@ app.whenReady().then(() => {
   }
   void registerAsBrowser();
   removeNyaApp();
+  // Windows' transparency effects switched on or off: "behind" glass follows.
+  nativeTheme.on('updated', () => {
+    if (window) applyWindowMaterial(window);
+  });
   app.on('second-instance', (_event, argv) => openLinks(linksFromArgs(argv)));
 
   // Widevine (DRM) is downloaded into the user's profile on first launch and

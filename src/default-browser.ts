@@ -13,6 +13,10 @@ import path from 'node:path';
 const NAME = 'Terra';
 const PROG_ID = 'TerraURL';
 const CLASSES_KEY = `HKEY_CURRENT_USER\\Software\\Classes\\${PROG_ID}`;
+const FILE_PROG_ID = 'TerraFile';
+const FILE_KEY = `HKEY_CURRENT_USER\\Software\\Classes\\${FILE_PROG_ID}`;
+/** Files Terra can show, so it appears in "Open with" for them. */
+export const FILE_EXTENSIONS = ['.pdf', '.htm', '.html', '.xhtml', '.svg'];
 const CLIENT_PATH = `Software\\Clients\\StartMenuInternet\\${NAME}`;
 const CLIENT_KEY = `HKEY_CURRENT_USER\\${CLIENT_PATH}`;
 const REGISTERED_APPS = 'HKEY_CURRENT_USER\\Software\\RegisteredApplications';
@@ -68,6 +72,19 @@ export function registerAsBrowser(): Promise<void> {
     `[${CLIENT_KEY}\\Capabilities\\URLAssociations]`,
     `"http"=${str(PROG_ID)}`,
     `"https"=${str(PROG_ID)}`,
+    `[${CLIENT_KEY}\\Capabilities\\FileAssociations]`,
+    ...FILE_EXTENSIONS.map((ext) => `"${ext}"=${str(FILE_PROG_ID)}`),
+    '',
+    `[${FILE_KEY}]`,
+    `@=${str(`${NAME} document`)}`,
+    `[${FILE_KEY}\\DefaultIcon]`,
+    `@=${icon}`,
+    `[${FILE_KEY}\\shell\\open\\command]`,
+    `@=${str(`"${exe}" "%1"`)}`,
+    ...FILE_EXTENSIONS.flatMap((ext) => [
+      `[HKEY_CURRENT_USER\\Software\\Classes\\${ext}\\OpenWithProgids]`,
+      `"${FILE_PROG_ID}"=hex(0):`,
+    ]),
     '',
     `[${REGISTERED_APPS}]`,
     `"${NAME}"=${str(`${CLIENT_PATH}\\Capabilities`)}`,
@@ -114,6 +131,16 @@ export function unregisterAsBrowser() {
     }
   };
   run(['delete', CLASSES_KEY, '/f']);
+  run(['delete', FILE_KEY, '/f']);
+  for (const ext of FILE_EXTENSIONS) {
+    run([
+      'delete',
+      `HKEY_CURRENT_USER\\Software\\Classes\\${ext}\\OpenWithProgids`,
+      '/v',
+      FILE_PROG_ID,
+      '/f',
+    ]);
+  }
   run(['delete', CLIENT_KEY, '/f']);
   run(['delete', REGISTERED_APPS, '/v', NAME, '/f']);
 }

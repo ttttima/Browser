@@ -896,6 +896,12 @@ let glassSource: GlassColors = 'accent';
 /** The open website's main colors (from main), or null when none shows. */
 let pageColors: string[] | null = null;
 
+/** Windows' "Transparency effects" off: no see-through glass. */
+const reducedTransparency = matchMedia(
+  '(prefers-reduced-transparency: reduce)',
+);
+reducedTransparency.addEventListener('change', () => applyGlass());
+
 /** The liquid glass background (index.css body.glass); OLED stays black. */
 function applyGlass() {
   const oled = colors.theme === 'oled';
@@ -908,19 +914,21 @@ function applyGlass() {
     ? 'Off in OLED dark'
     : 'Frosted glass background with soft light';
 
-  // Its colors: the accent (index.css default), the background tint, or
-  // the open website's main colors. Without a tint or a website showing,
-  // the accent.
+  // Its colors: the accent (index.css default), what's behind the window
+  // (main makes the window see-through with Windows' blur; here the
+  // background goes translucent), or the open website's main colors.
+  // Without transparency effects or a website showing: the accent.
   glassColorsRow.hidden = !on;
   glassColorsSelect.value = glassSource;
-  const tint = activeTint(colors);
+  const behind = on && glassSource === 'behind' && !reducedTransparency.matches;
+  document.body.classList.toggle('glass-behind', behind);
+  document.documentElement.classList.toggle('glass-behind', behind);
   let main: string | null = null;
   let extra: string[] = [];
-  if (glassSource === 'tint') {
-    main = tint;
-    glassColorsNote.textContent = tint
-      ? 'The soft light uses your Background tint'
-      : 'No Background tint picked: using the accent';
+  if (glassSource === 'behind') {
+    glassColorsNote.textContent = behind
+      ? "Shows what's behind Terra, blurred by Windows"
+      : 'Transparency effects are off in Windows: using the accent';
   } else if (glassSource === 'page') {
     main = pageColors?.[0] ?? null;
     extra = pageColors?.slice(1) ?? [];

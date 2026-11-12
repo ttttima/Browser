@@ -109,11 +109,14 @@ exactly 8px above and below them.
 - Liquid glass (`body.glass`, Appearance) only changes the background: the
   window's own background becomes frosted glass with soft light
   (`--glass*` tokens), drawn with plain gradients. Its three colors
-  (`--glass-1/2/3`) come from the accent, the background tint, or the open
-  website (`pagePalette` in `main.ts`): sampled live from small local
-  pictures of the page, every 250 ms while its colors change and 750 ms
-  when still, skipped while the window is covered or minimized. The window is never see-through, and controls, cards and the web
-  page don't change.
+  (`--glass-1/2/3`) come from the accent or the open website
+  (`pagePalette` in `main.ts`): sampled live from small local pictures of
+  the page, every 250 ms while its colors change and 750 ms when still,
+  skipped while the window is covered or minimized. "Behind the window"
+  instead shows the desktop and apps behind Terra: Windows' acrylic
+  material (`applyWindowMaterial` in `main.ts`, live and free, blur fixed by
+  Windows) under a light translucent layer (`--glass-behind`); it's the
+  only see-through mode. Controls, cards and the web page never change.
 - Large, soft gradients (anything spanning more than a few dozen pixels,
   like the glass light or the smooth-divider glows) band into rings in
   plain CSS: Chromium doesn't dither them. Draw them in `ui-backdrop.ts`,

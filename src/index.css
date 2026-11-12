@@ -89,6 +89,9 @@
   /* Liquid glass background: how strongly the accent's light shows under
      the glass, the frosted sheen across it and the bright rim on its edge. */
   --glass-light: 22%;
+  /* "Behind the window" glass: how much of --panel lies over the blurred
+     desktop, light enough to see it through. */
+  --glass-behind: 32%;
   --glass-sheen: rgba(255, 255, 255, 0.07);
   --glass-rim: rgba(255, 255, 255, 0.12);
 }
@@ -134,6 +137,7 @@
   --danger-bg: #fdecec;
   --danger-border: #f2b8bb;
   --glass-light: 18%;
+  --glass-behind: 40%;
   --glass-sheen: rgba(255, 255, 255, 0.6);
   --glass-rim: rgba(255, 255, 255, 0.9);
   --shadow: 0 8px 24px rgba(16, 24, 40, 0.08);
@@ -2343,4 +2347,23 @@ body.backdrop-gl.smooth-dividers .settings-content {
 /* The old grain on top isn't needed: the backdrop dithers before rounding. */
 body.backdrop-gl::after {
   display: none;
+}
+
+/* ============================================================ glass: behind the window */
+
+/* "Behind the window" glass colors: main.ts gives the window Windows'
+   acrylic material (the desktop and apps behind, blurred live by the
+   system), and here the window's background turns translucent so it shows
+   through: a light layer of the panel color with the sheen and rim. The
+   web page, controls and cards stay solid. ui-backdrop.ts draws the same
+   translucent layer (dithered); this is its fallback. */
+:root.glass-behind {
+  background: transparent;
+}
+
+body.glass.glass-behind,
+body.glass.glass-behind.smooth-dividers {
+  background:
+    linear-gradient(160deg, var(--glass-sheen), transparent 40%),
+    color-mix(in srgb, var(--panel) var(--glass-behind), transparent);
 }
