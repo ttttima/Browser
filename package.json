@@ -1,7 +1,7 @@
 {
   "name": "terra",
   "productName": "Terra",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "private": true,
   "description": "A clean, minimal web browser with vertical tabs",
   "keywords": [],
