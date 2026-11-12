@@ -429,8 +429,8 @@ export interface Settings {
    */
   backgroundTint: string;
   /**
-   * Liquid glass: the sidebar and bars become see-through, blurring what's
-   * behind the window (dark and light mode, Windows 11).
+   * Liquid glass: the window's background becomes frosted glass with soft
+   * light in the accent's colors under it (dark and light mode).
    */
   liquidGlass: boolean;
   /** Zoom and fade the window when it opens and closes. */

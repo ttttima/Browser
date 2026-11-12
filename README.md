@@ -95,8 +95,8 @@ you're happy.
 - **Updates itself** from the GitHub releases when a new version is out
 - **Color modes**: dark, light and OLED (pure black), with any accent
   color, and a background tint in any color for dark and light mode
-- **Liquid glass**: an optional see-through, blurred sidebar and bars
-  (Windows 11), with frosted pop-outs
+- **Liquid glass**: an optional frosted glass background with soft light
+  in your accent's colors
 - **Force dark mode**: makes every website dark, without flashing
 - **Protected video and music** (DRM) through Google's Widevine, which
   downloads by itself on first launch

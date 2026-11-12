@@ -8,6 +8,14 @@
       content="default-src 'self'; script-src 'self'; img-src 'self' data: https: http:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com"
     />
     <title>Terra</title>
+    <!-- Until index.css is applied, show nothing rather than unstyled HTML:
+         in development it arrives a moment after the page (and again on
+         every live reload). index.css makes the body visible. -->
+    <style>
+      body {
+        visibility: hidden;
+      }
+    </style>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -460,7 +468,7 @@
                   <span>
                     <strong>Liquid glass</strong>
                     <small id="glass-note"
-                      >See-through, blurred sidebar and bars</small
+                      >Frosted glass background with soft light</small
                     >
                   </span>
                   <input

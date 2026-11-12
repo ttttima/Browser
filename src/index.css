@@ -86,12 +86,10 @@
   --spinner-track: #4a5060;
   --danger-bg: #3a1d20;
   --danger-border: #6b2a2f;
-  /* Liquid glass: how much of --panel tints the see-through layer (and
-     the floating panels, which sit over text), the soft sheen across it
-     and the bright rim along its edge. */
-  --glass: 36%;
-  --glass-float: 72%;
-  --glass-sheen: rgba(255, 255, 255, 0.06);
+  /* Liquid glass background: how strongly the accent's light shows under
+     the glass, the frosted sheen across it and the bright rim on its edge. */
+  --glass-light: 22%;
+  --glass-sheen: rgba(255, 255, 255, 0.07);
   --glass-rim: rgba(255, 255, 255, 0.12);
 }
 
@@ -135,10 +133,9 @@
   --spinner-track: #d8dce3;
   --danger-bg: #fdecec;
   --danger-border: #f2b8bb;
-  --glass: 42%;
-  --glass-float: 72%;
-  --glass-sheen: rgba(255, 255, 255, 0.45);
-  --glass-rim: rgba(255, 255, 255, 0.8);
+  --glass-light: 18%;
+  --glass-sheen: rgba(255, 255, 255, 0.6);
+  --glass-rim: rgba(255, 255, 255, 0.9);
   --shadow: 0 8px 24px rgba(16, 24, 40, 0.08);
 }
 
@@ -164,6 +161,8 @@ body {
   margin: 0;
   padding: 0;
   overflow: hidden;
+  /* Hidden in index.html until this stylesheet is applied. */
+  visibility: visible;
   /* The panel color, so it shows around the web page's rounded corners
      and the page sits in the sidebar and toolbar like a card. Our own
      pages (new tab, settings) paint --bg themselves. */
@@ -2212,53 +2211,71 @@ body.drop-target::after {
 
 /* ============================================================ liquid glass */
 
-/* Liquid glass (Settings → Appearance), for the navigation layer only: the
-   sidebar, bars and settings nav turn see-through over Windows' acrylic
-   material (main.ts), which blurs whatever is behind the window. Content
-   stays solid: the web page, the new tab page, settings panels.
+/* Liquid glass (Settings â†’ Appearance) changes only the background: the
+   window's background becomes a sheet of frosted glass with soft light in
+   the accent's colors underneath, a sheen falling across it and a bright
+   rim along its top edge. The sidebar, bars, new tab page and settings sit
+   on it; controls, cards and the web page look exactly as before.
 
-   Kept cheap: the system compositor does the big blur; here one tinted
-   layer on the body covers the whole window and the bars on it just go
-   transparent. Only floating panels blur in the page, and only while
-   they're open. */
+   Kept cheap: it's all plain gradients in the window's own background,
+   painted once (no blur filters, no extra layers, no animation), so it
+   costs nothing while browsing. */
 body.glass,
 body.glass.smooth-dividers {
+  /* Hover over glass: a light veil instead of a solid chip. */
   --hover: color-mix(in srgb, var(--text) 8%, transparent);
-  background: color-mix(in srgb, var(--panel) var(--glass), transparent);
+  background:
+    /* the frosted sheen falling across the glass */
+    linear-gradient(160deg, var(--glass-sheen), transparent 40%),
+    /* soft light under the glass, in the accent and two neighbouring hues */
+    radial-gradient(
+        60% 55% at 8% 12%,
+        color-mix(in srgb, var(--accent) var(--glass-light), transparent),
+        transparent 70%
+      ),
+    radial-gradient(
+      55% 50% at 92% 88%,
+      color-mix(
+        in srgb,
+        oklch(from var(--accent) l c calc(h + 70)) var(--glass-light),
+        transparent
+      ),
+      transparent 70%
+    ),
+    radial-gradient(
+      45% 40% at 70% 6%,
+      color-mix(
+        in srgb,
+        oklch(from var(--accent) l c calc(h - 50)) var(--glass-light),
+        transparent
+      ),
+      transparent 70%
+    ),
+    var(--panel);
+  /* the bright rim along the glass's top edge */
   box-shadow: inset 0 1px 0 var(--glass-rim);
 }
 
-/* A soft light falling across the glass from the top left. */
-body.glass::before {
+/* The same fine grain as smooth dividers, so the soft light doesn't band. */
+body.glass::after {
   content: '';
   position: fixed;
   inset: 0;
-  z-index: -1;
-  background: linear-gradient(160deg, var(--glass-sheen), transparent 40%);
+  z-index: 10;
+  background-image: var(--dither, none);
   pointer-events: none;
 }
 
+/* Background areas let the glass show; everything on them stays as is. */
 body.glass #sidebar,
 body.glass .bar,
 body.glass #notice-bar,
+body.glass #start-page,
 body.glass #settings,
 body.glass.smooth-dividers #settings,
-body.glass .settings-nav {
+body.glass .settings-nav,
+body.glass .settings-content,
+body.glass.smooth-dividers .settings-content {
   background: transparent;
-}
-
-/* Settings panels are content: solid, like the web page. */
-body.glass .settings-content {
-  background: var(--bg);
-}
-
-/* Floating glass: frosted over whatever is under it in the window. */
-body.glass .bookmarks-pop,
-body.glass .suggest-list,
-body.glass .color-panel {
-  background: color-mix(in srgb, var(--panel) var(--glass-float), transparent);
-  box-shadow:
-    inset 0 1px 0 var(--glass-rim),
-    var(--shadow);
-  backdrop-filter: blur(var(--space-6)) saturate(1.5);
+  box-shadow: none;
 }

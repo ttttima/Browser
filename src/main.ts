@@ -342,37 +342,13 @@ function sanitizeSettings(value: Partial<Settings>): Settings {
   };
 }
 
-/**
- * Liquid glass is on and can be shown: not in OLED dark (pure black), and
- * not when Windows' transparency effects are off.
- */
-function glassOn() {
-  return (
-    settings.liquidGlass &&
-    settings.theme !== 'oled' &&
-    process.platform === 'win32' &&
-    !nativeTheme.prefersReducedTransparency
-  );
-}
-
-/**
- * The window's own background. With liquid glass it's Windows' acrylic
- * material: the desktop and windows behind, blurred by the system
- * compositor (no work for Terra per frame), seen through the UI's
- * translucent bars. Otherwise the solid theme color.
- */
-function applyWindowMaterial(win: BrowserWindow) {
-  if (win.isDestroyed()) return;
-  const glass = glassOn();
-  win.setBackgroundMaterial(glass ? 'acrylic' : 'none');
-  win.setBackgroundColor(glass ? '#00000000' : themeBackground(settings));
-}
-
 /** Applies the color mode to the window and tells websites about it. */
 function applyTheme() {
   // Websites that support dark mode (prefers-color-scheme) follow our theme.
   nativeTheme.themeSource = settings.theme === 'light' ? 'light' : 'dark';
-  if (window && !window.isDestroyed()) applyWindowMaterial(window);
+  if (window && !window.isDestroyed()) {
+    window.setBackgroundColor(themeBackground(settings));
+  }
   for (const tab of tabs) {
     if (pageOf(tab)) {
       tab.view.setBackgroundColor(tabBackground());
@@ -2326,8 +2302,7 @@ function createWindow(urls: string[] = []) {
     ...(fs.existsSync(path.join(app.getAppPath(), 'assets', 'icon.png'))
       ? { icon: path.join(app.getAppPath(), 'assets', 'icon.png') }
       : {}),
-    backgroundColor: glassOn() ? '#00000000' : themeBackground(settings),
-    backgroundMaterial: glassOn() ? 'acrylic' : 'none',
+    backgroundColor: themeBackground(settings),
     // Shown once the UI has painted, with the opening animation.
     show: false,
     autoHideMenuBar: true,
@@ -2565,14 +2540,12 @@ function setUpIpc() {
       return;
     }
     const before = settings.sidebarCollapsed;
-    const beforeBackground = `${themeBackground(settings)} ${glassOn()}`;
+    const beforeBackground = themeBackground(settings);
     const beforeDark = settings.forceDark;
     settings = sanitizeSettings({ ...settings, ...changes });
     saveSettings();
     sendSettings();
-    if (`${themeBackground(settings)} ${glassOn()}` !== beforeBackground) {
-      applyTheme();
-    }
+    if (themeBackground(settings) !== beforeBackground) applyTheme();
     if (settings.forceDark !== beforeDark) updateForcedDarkAll();
     if (animationsOn()) prepareOverlay();
     else destroyOverlay();
@@ -2863,10 +2836,6 @@ app.whenReady().then(() => {
   }
   void registerAsBrowser();
   removeNyaApp();
-  // Windows' transparency effects switched on or off: glass follows.
-  nativeTheme.on('updated', () => {
-    if (window) applyWindowMaterial(window);
-  });
   app.on('second-instance', (_event, argv) => openLinks(linksFromArgs(argv)));
 
   // Widevine (DRM) is downloaded into the user's profile on first launch and

@@ -888,25 +888,16 @@ const glassNote = $<HTMLElement>('#glass-note');
 const liquidGlass = $<HTMLInputElement>('#setting-liquid-glass');
 let glassWanted = false;
 
-/** Liquid glass look (index.css body.glass); main sets the window material. */
-const reducedTransparency = matchMedia(
-  '(prefers-reduced-transparency: reduce)',
-);
-reducedTransparency.addEventListener('change', () => applyGlass());
-
+/** The liquid glass background (index.css body.glass); OLED stays black. */
 function applyGlass() {
   const oled = colors.theme === 'oled';
-  // Windows' "Transparency effects" off: solid, like main's window.
-  document.body.classList.toggle(
-    'glass',
-    glassWanted && !oled && !reducedTransparency.matches,
-  );
+  document.body.classList.toggle('glass', glassWanted && !oled);
   glassRow.classList.toggle('disabled', oled);
   liquidGlass.disabled = oled;
   liquidGlass.checked = glassWanted;
   glassNote.textContent = oled
     ? 'Off in OLED dark'
-    : 'See-through, blurred sidebar and bars';
+    : 'Frosted glass background with soft light';
 }
 
 liquidGlass.addEventListener('change', () => {
@@ -1022,9 +1013,15 @@ function updateDither() {
   const base = Math.max(1, Math.min(254, (r + g + b) / 3));
 
   // Alpha so that one white pixel adds ~1 level and one black pixel
-  // removes ~1 level on this background.
-  const whiteAlpha = Math.max(1, Math.round(255 / (255 - base)));
-  const blackAlpha = Math.max(1, Math.round(255 / base));
+  // removes ~1 level on this background. Capped: near white (or black) the
+  // formula asks for nearly opaque dots, which do nothing on the background
+  // itself but speckle everything darker (or lighter) drawn on it, like text.
+  const MAX_ALPHA = 8;
+  const whiteAlpha = Math.min(
+    MAX_ALPHA,
+    Math.max(1, Math.round(255 / (255 - base))),
+  );
+  const blackAlpha = Math.min(MAX_ALPHA, Math.max(1, Math.round(255 / base)));
 
   const size = 128;
   const canvas = document.createElement('canvas');
