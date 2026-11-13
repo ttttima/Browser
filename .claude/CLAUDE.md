@@ -30,6 +30,15 @@ Files or HKLM, services, drivers).
 
 Run `npm start`. Before finishing, run `npm run typecheck` and `npm run lint`.
 
+## Terra for Android
+
+The Android app lives in its own repo,
+[ttttima/Terra-mobile](https://github.com/ttttima/Terra-mobile) (locally
+`../Terra-mobile`). It keeps copies of `src/shared.ts`, `ui-common.ts`,
+`ui-pages.ts`, `ui-bookmarks-pop.ts`, `ui-color-panel.ts`, `ui-backdrop.ts`,
+`suggest-local.ts` and `index.css`: keep those free of Electron and
+desktop-only DOM, and when they change here, copy them over there.
+
 ## Design rules
 
 The owner cares a lot about symmetry and cleanliness. Every UI change must

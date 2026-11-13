@@ -115,6 +115,15 @@ you're happy.
   <img src="docs/settings.png" width="860" alt="Terra settings: color mode, accent color and layout options" />
 </p>
 
+## Android
+
+Terra also runs on Android phones (Android 10 or newer), with the same
+features laid out for a phone: the toolbar at the bottom where your thumb is,
+the tabs in a drawer from the left, and menus that slide up from below. It
+lives in its own repo, [Terra-mobile](https://github.com/ttttima/Terra-mobile):
+get `Terra-x.y.z.apk` from its
+[Releases](https://github.com/ttttima/Terra-mobile/releases).
+
 ## Uninstall
 
 Open Windows **Settings → Apps → Installed apps**, find **Terra** and choose

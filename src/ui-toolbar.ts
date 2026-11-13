@@ -27,9 +27,9 @@ let request = 0;
 let covering = false;
 let searchSuggestions = false;
 
-export function setSearchSuggestions(on: boolean) {
-  searchSuggestions = on;
-}
+window.browser.onSettingsChanged((settings) => {
+  searchSuggestions = settings.searchSuggestions;
+});
 
 function position() {
   if (!input) return;

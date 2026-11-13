@@ -18,7 +18,6 @@ import {
   listText,
   terra,
 } from './ui-common';
-import { setSearchSuggestions } from './ui-toolbar';
 
 let currentPage: PanelPage | null = null;
 
@@ -48,7 +47,6 @@ window.browser.onSettingsChanged((settings: Settings) => {
   startup.value = settings.startup;
   suggestions.checked = settings.searchSuggestions;
   suggestionsText.textContent = `Sends what you type in the address bar to ${SEARCH_ENGINES[settings.searchEngine].name}`;
-  setSearchSuggestions(settings.searchSuggestions);
   blockAds.checked = settings.blockAds;
   offerPasswords.checked = settings.offerPasswords;
   clearOnExit.checked = settings.clearOnExit;
