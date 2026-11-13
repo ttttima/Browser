@@ -11,7 +11,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-const RELEASES = 'https://api.github.com/repos/ttttima/Browser/releases';
+const RELEASES = 'https://api.github.com/repos/ttttima/Terra-Browser/releases';
 
 export interface ReadyUpdate {
   version: string;

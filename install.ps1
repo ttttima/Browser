@@ -1,6 +1,6 @@
 # Installs Terra for the current user - no administrator rights needed.
 #
-#   irm https://raw.githubusercontent.com/ttttima/Browser/main/install.ps1 | iex
+#   irm https://raw.githubusercontent.com/ttttima/Terra-Browser/main/install.ps1 | iex
 #
 # Downloads the newest Terra release from GitHub, puts it in
 # %LOCALAPPDATA%\Programs\Terra, adds Start menu and desktop shortcuts and an
@@ -18,7 +18,7 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue' # much faster downloads in PowerShell 5
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-$Repo = 'ttttima/Browser'
+$Repo = 'ttttima/Terra-Browser'
 $AppName = 'Terra'
 $Exe = Join-Path $InstallDir 'Terra.exe'
 

@@ -5,13 +5,13 @@
   "private": true,
   "description": "A clean, minimal web browser with vertical tabs",
   "keywords": [],
-  "homepage": "https://github.com/ttttima/Browser#readme",
+  "homepage": "https://github.com/ttttima/Terra-Browser#readme",
   "repository": {
     "type": "git",
-    "url": "https://github.com/ttttima/Browser.git"
+    "url": "https://github.com/ttttima/Terra-Browser.git"
   },
   "bugs": {
-    "url": "https://github.com/ttttima/Browser/issues"
+    "url": "https://github.com/ttttima/Terra-Browser/issues"
   },
   "license": "MIT",
   "author": {

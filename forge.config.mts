@@ -63,7 +63,7 @@ const config: ForgeConfig = {
       setupIcon: 'assets/icon.ico',
       // Shown in Windows "Installed apps"; must be a web address.
       iconUrl:
-        'https://raw.githubusercontent.com/ttttima/Browser/main/assets/icon.ico',
+        'https://raw.githubusercontent.com/ttttima/Terra-Browser/main/assets/icon.ico',
     }),
     new MakerZIP({}, ['darwin', 'win32']),
     new MakerRpm({}),

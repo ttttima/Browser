@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/ttttima/Browser/releases"><img alt="Latest release" src="https://img.shields.io/github/v/release/ttttima/Browser?include_prereleases&label=release&color=8b5cf6" /></a>
+  <a href="https://github.com/ttttima/Terra-Browser/releases"><img alt="Latest release" src="https://img.shields.io/github/v/release/ttttima/Terra-Browser?include_prereleases&label=release&color=8b5cf6" /></a>
   <img alt="Windows" src="https://img.shields.io/badge/platform-Windows-0078d4" />
   <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-22c55e" /></a>
 </p>
@@ -23,13 +23,13 @@
 **Recommended:** open **PowerShell** and paste this line:
 
 ```powershell
-irm https://raw.githubusercontent.com/ttttima/Browser/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/ttttima/Terra-Browser/main/install.ps1 | iex
 ```
 
 It downloads the newest Terra, installs it just for you (no administrator
 rights), adds Start menu and desktop shortcuts, and starts it.
 
-**Or download it** from the [Releases](https://github.com/ttttima/Browser/releases)
+**Or download it** from the [Releases](https://github.com/ttttima/Terra-Browser/releases)
 page:
 
 - `Terra-x.y.z-Setup.exe`: installer
@@ -49,11 +49,11 @@ update by hand the same way you installed it:
   newest version in place and starts it.
 
   ```powershell
-  irm https://raw.githubusercontent.com/ttttima/Browser/main/install.ps1 | iex
+  irm https://raw.githubusercontent.com/ttttima/Terra-Browser/main/install.ps1 | iex
   ```
 
 - **Setup.exe:** download the newest `Terra-x.y.z-Setup.exe` from
-  [Releases](https://github.com/ttttima/Browser/releases) and run it. It
+  [Releases](https://github.com/ttttima/Terra-Browser/releases) and run it. It
   replaces the old version.
 - **Portable zip:** download the newest zip, close Terra and unzip it over the
   old folder.
