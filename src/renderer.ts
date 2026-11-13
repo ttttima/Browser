@@ -5,6 +5,7 @@ import { closeBookmarksPop } from './ui-bookmarks-pop';
 import { updateAutoCompact } from './ui-auto-compact';
 import './ui-backdrop';
 import './ui-autorefresh';
+import './ui-google';
 import { icon } from './ui-common';
 import {
   attachSuggestions,

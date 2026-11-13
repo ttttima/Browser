@@ -119,6 +119,7 @@ import {
   type Bindings,
   type CustomBinding,
   type DefaultBrowserState,
+  type GoogleAccount,
   type DownloadAction,
   type PanelPage,
   type Rect,
@@ -971,6 +972,66 @@ function setSettingsOpen(open: boolean) {
   if (open) uiContents()?.focus();
   else if (activeTab()?.isNewTab) focusAddressBar();
   else activeContents()?.focus();
+}
+
+// ---- Google account (Settings → Navigation). Signing in is just Google's
+// own sign-in page in a tab: its cookies stay in Terra's session, so Google
+// keeps your searches in your account (Web & App Activity). Terra itself
+// sends nothing; it only asks Google which account is signed in, and only
+// once a Google sign-in cookie exists.
+const GOOGLE_SIGN_IN =
+  'https://accounts.google.com/ServiceLogin?continue=https%3A%2F%2Fwww.google.com%2F';
+const GOOGLE_SIGN_OUT =
+  'https://accounts.google.com/Logout?continue=https%3A%2F%2Fwww.google.com%2F';
+
+function openGooglePage(url: string) {
+  setSettingsOpen(false);
+  createTab(url);
+}
+
+async function googleAccount(): Promise<GoogleAccount | null> {
+  try {
+    const ses = session.defaultSession;
+    const cookies = await ses.cookies.get({
+      domain: 'google.com',
+      name: 'SID',
+    });
+    if (!cookies.length) return null;
+    const response = await ses.fetch(
+      'https://accounts.google.com/ListAccounts?gpsia=1&source=ChromiumBrowser&json=standard',
+      { method: 'POST', credentials: 'include' },
+    );
+    if (!response.ok) return null;
+    // ["gaia.l.a.r", [["gaia.l.a", 1, name, email, photo, 1, 1, 0, 0,
+    //   valid, id, ..., signedOut], ...]]
+    const [, accounts] = (await response.json()) as [string, unknown[][]];
+    const account = accounts?.find(
+      (entry) =>
+        typeof entry[3] === 'string' && entry[9] === 1 && entry[14] !== 1,
+    );
+    if (!account) return null;
+    return {
+      email: account[3] as string,
+      name: typeof account[2] === 'string' ? account[2] : '',
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Tells the UI when Google's sign-in cookie comes or goes. */
+function watchGoogleSignIn() {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  session.defaultSession.cookies.on('changed', (_event, cookie) => {
+    if (
+      cookie.name !== 'SID' ||
+      !/(^|\.)google\.com$/.test(cookie.domain ?? '')
+    ) {
+      return;
+    }
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => sendToUi('terra:google-changed', null), 1000);
+  });
 }
 
 async function clearBrowsingData() {
@@ -2951,6 +3012,9 @@ function setUpIpc() {
     const tab = isId(id) ? findTab(id) : activeTab();
     if (tab) setAutoRefresh(tab, false);
   });
+  handle('terra:google-account', () => googleAccount());
+  on('terra:google-connect', () => openGooglePage(GOOGLE_SIGN_IN));
+  on('terra:google-disconnect', () => openGooglePage(GOOGLE_SIGN_OUT));
   on('terra:scroll-tabs', (step) => {
     if (step === 1 || step === -1) scrollTabs(step);
   });
@@ -3234,6 +3298,7 @@ app.whenReady().then(() => {
   initPasswords(() => sendToUi('terra:logins-changed', null));
   initAdblock();
   setUpSession(session.defaultSession, false);
+  watchGoogleSignIn();
 
   // Sites that ask for a username and password in a browser box.
   app.on('login', (event, contents, _details, authInfo, callback) => {
