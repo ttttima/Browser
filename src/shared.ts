@@ -10,7 +10,14 @@ export interface BrowserState {
   security: PageSecurity;
   bookmarked: boolean;
   isPrivate: boolean;
+  /** Auto-refresh is on for this tab (hold F5). */
+  autoRefresh: boolean;
 }
+
+/** Auto-refresh: the next reload this long after the page finished loading. */
+export const AUTO_REFRESH_MS = 500;
+/** Holding the reload key this long turns auto-refresh on or off. */
+export const HOLD_TO_REFRESH_MS = 2000;
 
 export interface TabInfo {
   id: number;
@@ -26,6 +33,8 @@ export interface TabInfo {
   muted: boolean;
   /** Private tab: nothing is remembered. */
   isPrivate: boolean;
+  /** Reloading every AUTO_REFRESH_MS (hold F5). */
+  autoRefresh: boolean;
 }
 
 export interface TabsState {
@@ -423,6 +432,8 @@ export interface Settings {
   forceDark: boolean;
   /** Mouse wheel over the sidebar switches tabs. */
   scrollTabs: boolean;
+  /** Holding the reload key (F5) for 2 s turns auto-refresh on or off. */
+  holdToAutoRefresh: boolean;
   /** Show a Save dialog for every download instead of using Downloads. */
   askDownloadLocation: boolean;
   /** Key or mouse button for each action ("" = not set). */
@@ -492,6 +503,7 @@ export const DEFAULT_SETTINGS: Settings = {
   smoothDividers: false,
   forceDark: false,
   scrollTabs: false,
+  holdToAutoRefresh: false,
   askDownloadLocation: false,
   bindings: defaultBindings(),
   customBindings: [],

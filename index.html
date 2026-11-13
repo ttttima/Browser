@@ -139,6 +139,12 @@
           100%
         </button>
         <button
+          id="refresh-chip"
+          class="text-button refresh-chip"
+          title="Stop auto-refresh"
+          hidden
+        ></button>
+        <button
           id="bookmark-button"
           class="icon-button"
           title="Bookmark this page"
@@ -640,6 +646,20 @@
                   </span>
                   <input
                     id="setting-scroll-tabs"
+                    type="checkbox"
+                    class="switch"
+                  />
+                </label>
+                <label class="setting-row">
+                  <span>
+                    <strong>Auto-refresh by holding F5</strong>
+                    <small
+                      >Hold F5 for 2 seconds: the site reloads every 0.5
+                      seconds. Hold again to stop</small
+                    >
+                  </span>
+                  <input
+                    id="setting-hold-refresh"
                     type="checkbox"
                     class="switch"
                   />

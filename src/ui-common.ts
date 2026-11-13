@@ -37,6 +37,8 @@ export const PATHS = {
   copy: '<rect x="9" y="9" width="11" height="11" rx="2" /><path d="M5 15V5a2 2 0 0 1 2-2h8" />',
   speaker:
     '<polygon points="4 9 8 9 13 5 13 19 8 15 4 15 4 9" /><path d="M16.5 8.5a5 5 0 0 1 0 7" />',
+  refresh:
+    '<path d="M20 11a8 8 0 1 0-2.3 5.7" /><polyline points="20 4 20 10 14 10" />',
   bookmark: '<path d="M6 4h12v16l-6-4-6 4z" />',
   folder:
     '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />',

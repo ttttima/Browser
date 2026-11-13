@@ -96,6 +96,8 @@ import {
 } from './library';
 import {
   DEFAULT_SETTINGS,
+  AUTO_REFRESH_MS,
+  HOLD_TO_REFRESH_MS,
   GLASS_COLORS,
   type GlassColors,
   SEARCH_ENGINES,
@@ -201,6 +203,9 @@ interface Tab {
   historyId: string | null;
   pinned: boolean;
   audible: boolean;
+  /** Reloading every AUTO_REFRESH_MS after each load (hold F5). */
+  autoRefresh: boolean;
+  autoRefreshTimer: ReturnType<typeof setTimeout> | null;
   /** Private tab: separate in-memory session, nothing is remembered. */
   isPrivate: boolean;
   /** Restored tab that loads only when first opened. */
@@ -314,6 +319,7 @@ function sanitizeSettings(value: Partial<Settings>): Settings {
     smoothDividers: value.smoothDividers === true,
     forceDark: value.forceDark === true,
     scrollTabs: value.scrollTabs === true,
+    holdToAutoRefresh: value.holdToAutoRefresh === true,
     askDownloadLocation: value.askDownloadLocation === true,
     bindings: sanitizeBindings(value.bindings),
     customBindings: sanitizeCustomBindings(value.customBindings),
@@ -564,6 +570,7 @@ function sendTabs() {
         pinned: tab.pinned,
         audible: tab.audible,
         muted: pageOf(tab)?.isAudioMuted() ?? false,
+        autoRefresh: tab.autoRefresh,
         isPrivate: tab.isPrivate,
       }),
     ),
@@ -613,6 +620,7 @@ function sendState() {
     security: securityOf(shownUrl(tab)),
     bookmarked: isBookmarked(shownUrl(tab)),
     isPrivate: tab.isPrivate,
+    autoRefresh: tab.autoRefresh,
   };
   sendToUi('browser:state', state);
 }
@@ -1021,6 +1029,8 @@ function createTab(
     historyId: null,
     pinned: options.pinned === true,
     audible: false,
+    autoRefresh: false,
+    autoRefreshTimer: null,
     isPrivate,
     lazyUrl: options.lazyTitle !== undefined ? url : null,
   };
@@ -1055,6 +1065,7 @@ function closeTab(id: number) {
   const index = tabs.findIndex((tab) => tab.id === id);
   if (index === -1) return;
   const [tab] = tabs.splice(index, 1);
+  if (tab.autoRefreshTimer) clearTimeout(tab.autoRefreshTimer);
   dropNotices(tab.id);
 
   const url = shownUrl(tab);
@@ -1433,6 +1444,7 @@ function wireTab(tab: Tab) {
   contents.on('did-stop-loading', changed);
   contents.on('did-stop-loading', () => {
     if (isActive()) samplePageEdgesSoon();
+    if (tab.autoRefresh) scheduleAutoRefresh(tab);
   });
 
   contents.on('did-finish-load', () => {
@@ -1916,7 +1928,94 @@ let recordingBinding = false;
  * (by default just F5). Escape leaving settings / video fullscreen is
  * built-in behavior, not a binding.
  */
+// ------------------------------------------------------------ auto-refresh
+
+/**
+ * Auto-refresh: the next reload AUTO_REFRESH_MS after the page finished
+ * loading (so even a slow page gets to show), until it's turned off.
+ */
+function scheduleAutoRefresh(tab: Tab) {
+  if (tab.autoRefreshTimer) clearTimeout(tab.autoRefreshTimer);
+  tab.autoRefreshTimer = null;
+  if (!tab.autoRefresh) return;
+  tab.autoRefreshTimer = setTimeout(() => {
+    tab.autoRefreshTimer = null;
+    const contents = pageOf(tab);
+    if (!tab.autoRefresh || !contents || tab.isNewTab) return;
+    // Still loading: did-stop-loading schedules the next one.
+    if (!contents.isLoading()) contents.reload();
+  }, AUTO_REFRESH_MS);
+}
+
+function setAutoRefresh(tab: Tab, on: boolean) {
+  tab.autoRefresh = on && !tab.isNewTab && !!pageOf(tab);
+  scheduleAutoRefresh(tab);
+  sendTabs();
+  sendState();
+}
+
+/** Where a hold of the reload key started (cleared when it's let go). */
+let reloadHold: { key: string; timer: ReturnType<typeof setTimeout> } | null =
+  null;
+
+function endReloadHold() {
+  if (!reloadHold) return;
+  clearTimeout(reloadHold.timer);
+  reloadHold = null;
+  sendToUi('terra:refresh-hold', null);
+}
+
+/**
+ * "Auto-refresh by holding F5": the first press reloads as usual and starts
+ * a HOLD_TO_REFRESH_MS timer; letting go cancels it, otherwise auto-refresh
+ * turns on (or off) for the tab. The key's repeats while held don't reload
+ * again.
+ *
+ * The key events are left to go through: Chromium drops the key-up of a
+ * key press that was blocked, and without it the hold couldn't end.
+ * Returns 'reload' for the first press (reload, don't block), 'quiet' for
+ * the rest of a hold (do nothing, don't block), or null when it's not a
+ * hold.
+ */
+function handleReloadHold(input: Input): 'reload' | 'quiet' | null {
+  if (input.type === 'keyUp') {
+    if (reloadHold && input.key === reloadHold.key) {
+      endReloadHold();
+      return 'quiet';
+    }
+    return null;
+  }
+  if (input.type !== 'keyDown' || !settings.holdToAutoRefresh) return null;
+  const combo = keyCombo({
+    key: input.key,
+    ctrl: input.control,
+    alt: input.alt,
+    shift: input.shift,
+    meta: input.meta,
+  });
+  if (!combo || settings.bindings.reload !== combo) return null;
+  if (input.isAutoRepeat) return 'quiet';
+  const tab = activeTab();
+  if (!tab || tab.isNewTab || settingsOpen || !pageOf(tab)) return null;
+  endReloadHold();
+  const turnOn = !tab.autoRefresh;
+  reloadHold = {
+    key: input.key,
+    timer: setTimeout(() => {
+      reloadHold = null;
+      sendToUi('terra:refresh-hold', null);
+      if (findTab(tab.id)) setAutoRefresh(tab, turnOn);
+    }, HOLD_TO_REFRESH_MS),
+  };
+  // The UI shows the hold filling up, and what letting go now would do.
+  sendToUi('terra:refresh-hold', turnOn ? 'on' : 'off');
+  return 'reload';
+}
+
 function handleShortcut(input: Input): boolean {
+  const hold = handleReloadHold(input);
+  if (hold === 'reload') reload();
+  if (hold) return false; // not blocked: its key-up must still come
   if (input.type !== 'keyDown') return false;
 
   if (input.key === 'Escape' && settingsOpen && !recordingBinding) {
@@ -2848,6 +2947,10 @@ function setUpIpc() {
     typeof value === 'string' && value.length <= max;
 
   on('terra:slide-shot-ready', () => slideShotShown?.());
+  on('terra:auto-refresh-stop', (id) => {
+    const tab = isId(id) ? findTab(id) : activeTab();
+    if (tab) setAutoRefresh(tab, false);
+  });
   on('terra:scroll-tabs', (step) => {
     if (step === 1 || step === -1) scrollTabs(step);
   });

@@ -55,6 +55,9 @@
 
   /* Motion */
   --duration: 150ms;
+  /* How long the reload key is held to turn auto-refresh on or off; the
+     indicator fills up over it. Must equal HOLD_TO_REFRESH_MS. */
+  --hold-duration: 2000ms;
 
   /* Accent: replaced by the user's accent color at runtime. */
   --accent: #4f7cff;
@@ -225,7 +228,8 @@ body.sidebar-sliding .label {
 }
 
 body.sidebar-sliding .tab .tab-close,
-body.sidebar-sliding .tab .tab-audio {
+body.sidebar-sliding .tab .tab-audio,
+body.sidebar-sliding .tab .tab-refresh {
   display: none;
 }
 
@@ -1923,7 +1927,8 @@ body.settings-open #notice-bar {
 /* ============================================================ tabs: extras */
 
 /* Speaker on tabs that play sound: click to mute. */
-.tab-audio {
+.tab-audio,
+.tab-refresh {
   width: var(--control-sm);
   height: var(--control-sm);
   min-width: var(--control-sm);
@@ -1931,11 +1936,13 @@ body.settings-open #notice-bar {
   color: var(--muted);
 }
 
-.tab-audio[hidden] {
+.tab-audio[hidden],
+.tab-refresh[hidden] {
   display: none;
 }
 
-.tab-audio:hover:not(:disabled) {
+.tab-audio:hover:not(:disabled),
+.tab-refresh:hover:not(:disabled) {
   background: var(--chip);
   color: var(--text-strong);
 }
@@ -2126,7 +2133,8 @@ body.sidebar-collapsed #bookmarks-pop-button {
   color: var(--accent);
 }
 
-body.sidebar-collapsed .tab-audio {
+body.sidebar-collapsed .tab-audio,
+body.sidebar-collapsed .tab-refresh {
   display: none;
 }
 
@@ -2366,4 +2374,55 @@ body.glass.glass-behind.smooth-dividers {
   background:
     linear-gradient(160deg, var(--glass-sheen), transparent 40%),
     color-mix(in srgb, var(--panel) var(--glass-behind), transparent);
+}
+
+/* ============================================================ auto-refresh */
+
+/* The toolbar indicator: while F5 is held it fills up along its bottom
+   edge over --hold-duration; while auto-refresh is on it shows in the
+   selected style. Click to stop. */
+.refresh-chip {
+  position: relative;
+  gap: var(--space-1);
+  overflow: hidden;
+}
+
+.refresh-chip.on {
+  background: var(--accent-soft);
+  color: var(--text-strong);
+}
+
+.refresh-chip.on .icon {
+  color: var(--accent);
+}
+
+.refresh-chip::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  background: var(--accent);
+  transform: scaleX(0);
+  transform-origin: left;
+}
+
+.refresh-chip.holding::after {
+  animation: hold-fill var(--hold-duration) linear forwards;
+}
+
+@keyframes hold-fill {
+  to {
+    transform: scaleX(1);
+  }
+}
+
+body.start-open #refresh-chip {
+  visibility: hidden;
+}
+
+/* On the tab: the same small button as the speaker, in the accent color. */
+.tab-refresh .icon {
+  color: var(--accent);
 }

@@ -4,6 +4,7 @@ import { cancelColorPanel, openColorPanel } from './ui-color-panel';
 import { closeBookmarksPop } from './ui-bookmarks-pop';
 import { updateAutoCompact } from './ui-auto-compact';
 import './ui-backdrop';
+import './ui-autorefresh';
 import { icon } from './ui-common';
 import {
   attachSuggestions,
@@ -244,6 +245,7 @@ const CLOSE_ICON =
   '<svg class="icon icon-sm" viewBox="0 0 24 24" aria-hidden="true"><line x1="6" y1="6" x2="18" y2="18" /><line x1="18" y1="6" x2="6" y2="18" /></svg>';
 
 const PRIVATE_ICON = icon('eyeOff');
+const REFRESH_ICON = icon('refresh', 'icon-sm');
 
 const tabList = $<HTMLUListElement>('#tabs');
 const tabElements = new Map<number, HTMLLIElement>();
@@ -279,6 +281,18 @@ function createTabElement(id: number) {
     window.terra.send('terra:tab-mute', id);
   });
 
+  // Auto-refresh (hold F5): shows while it's on; click to stop.
+  const refresh = document.createElement('button');
+  refresh.className = 'tab-refresh';
+  refresh.hidden = true;
+  refresh.title = 'Stop auto-refresh';
+  refresh.ariaLabel = refresh.title;
+  refresh.innerHTML = REFRESH_ICON;
+  refresh.addEventListener('click', (event) => {
+    event.stopPropagation();
+    window.terra.send('terra:auto-refresh-stop', id);
+  });
+
   const close = document.createElement('button');
   close.className = 'tab-close';
   close.title = 'Close tab';
@@ -288,7 +302,7 @@ function createTabElement(id: number) {
     window.browser.closeTab(id);
   });
 
-  item.append(icon, title, audio, close);
+  item.append(icon, title, refresh, audio, close);
   item.addEventListener('contextmenu', (event) => {
     event.preventDefault();
     window.terra.send('terra:tab-menu', id);
@@ -440,6 +454,8 @@ function renderTabs(state: TabsState) {
       audio.title = tab.muted ? 'Unmute tab' : 'Mute tab';
       audio.ariaLabel = audio.title;
     }
+    item.querySelector<HTMLButtonElement>('.tab-refresh')!.hidden =
+      !tab.autoRefresh;
     renderTabIcon(item.querySelector<HTMLElement>('.tab-icon')!, tab);
 
     // Keep DOM order in sync without recreating elements.
@@ -621,6 +637,7 @@ const autoCompact = $<HTMLInputElement>('#setting-auto-compact');
 const showDividers = $<HTMLInputElement>('#setting-show-dividers');
 const forceDark = $<HTMLInputElement>('#setting-force-dark');
 const scrollTabs = $<HTMLInputElement>('#setting-scroll-tabs');
+const holdRefresh = $<HTMLInputElement>('#setting-hold-refresh');
 const askDownload = $<HTMLInputElement>('#setting-ask-download');
 const smoothDividers = $<HTMLInputElement>('#setting-smooth-dividers');
 const smoothDividersRow = $<HTMLElement>('#smooth-dividers-row');
@@ -737,6 +754,9 @@ askDownload.addEventListener('change', () =>
 );
 windowAnimations.addEventListener('change', () =>
   window.browser.updateSettings({ windowAnimations: windowAnimations.checked }),
+);
+holdRefresh.addEventListener('change', () =>
+  window.browser.updateSettings({ holdToAutoRefresh: holdRefresh.checked }),
 );
 scrollTabs.addEventListener('change', () => {
   scrollTabsEnabled = scrollTabs.checked;
@@ -1665,6 +1685,7 @@ window.browser.onSettingsChanged((settings) => {
   smoothDividers.checked = settings.smoothDividers;
   forceDark.checked = settings.forceDark;
   scrollTabs.checked = settings.scrollTabs;
+  holdRefresh.checked = settings.holdToAutoRefresh;
   scrollTabsEnabled = settings.scrollTabs;
   windowAnimations.checked = settings.windowAnimations;
   askDownload.checked = settings.askDownloadLocation;
