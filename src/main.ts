@@ -984,6 +984,36 @@ const GOOGLE_SIGN_IN =
 const GOOGLE_SIGN_OUT =
   'https://accounts.google.com/Logout?continue=https%3A%2F%2Fwww.google.com%2F';
 
+// Google's sign-in refuses browsers it doesn't know ("This browser or app
+// may not be secure") and spots an embedded Chromium even with a Chrome user
+// agent. Firefox is allowed, so its sign-in pages see Terra as Firefox: in
+// the request headers (with Chromium's "client hints" left out, as Firefox
+// sends none) and in the page's own navigator.userAgent.
+const SIGN_IN_URLS = ['https://accounts.google.com/*'];
+const FIREFOX_UA =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0';
+const isSignInUrl = (url: string) =>
+  url.startsWith('https://accounts.google.com/');
+
+function useSignInIdentity(contents: WebContents, url: string) {
+  const want = isSignInUrl(url) ? FIREFOX_UA : app.userAgentFallback;
+  if (contents.getUserAgent() !== want) contents.setUserAgent(want);
+}
+
+function signInHeaders(ses: Session) {
+  ses.webRequest.onBeforeSendHeaders(
+    { urls: SIGN_IN_URLS },
+    (details, callback) => {
+      const headers = { ...details.requestHeaders };
+      for (const name of Object.keys(headers)) {
+        if (/^(user-agent|sec-ch-ua.*)$/i.test(name)) delete headers[name];
+      }
+      headers['User-Agent'] = FIREFOX_UA;
+      callback({ requestHeaders: headers });
+    },
+  );
+}
+
 function openGooglePage(url: string) {
   setSettingsOpen(false);
   createTab(url);
@@ -1514,6 +1544,11 @@ function wireTab(tab: Tab) {
     if (isActive()) focusAddressBar();
   });
 
+  contents.on('did-start-navigation', (details) => {
+    if (details.isMainFrame && !details.isSameDocument) {
+      useSignInIdentity(contents, details.url);
+    }
+  });
   contents.on('did-start-navigation', (details) => {
     if (!details.isMainFrame || details.isSameDocument) return;
     dropNotices(tab.id, true);
@@ -2248,6 +2283,7 @@ function rememberDecision(
 
 /** Permissions, screen sharing and ad blocking for a session. */
 function setUpSession(ses: Session, isPrivate: boolean) {
+  signInHeaders(ses);
   ses.setPermissionRequestHandler((contents, permission, callback, details) => {
     if (AUTO_ALLOWED.has(permission)) return callback(true);
     const origin = originOf(details.requestingUrl || contents.getURL());
