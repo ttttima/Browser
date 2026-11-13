@@ -3,7 +3,105 @@
 // built-in dark mode forcer (here so it can decide before the first paint
 // and the page never flashes), the mouse side buttons and the password
 // helper.
-import { ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer } from 'electron';
+
+// ---- Google sign-in (see SIGN_IN_URLS in main.ts). Google refuses to sign
+// in browsers it takes for an embedded one: there window.chrome is empty
+// and the brand list has no "Google Chrome". On accounts.google.com only,
+// the page's scripts see what Chrome itself shows them.
+function chromeLikeSignIn(version: string) {
+  type Brand = { brand: string; version: string };
+  const major = version.split('.')[0];
+  const w = window as unknown as { chrome?: Record<string, unknown> };
+  const chrome = w.chrome ?? {};
+  const now = () => Date.now() / 1000;
+  chrome.app ??= {
+    isInstalled: false,
+    InstallState: {
+      DISABLED: 'disabled',
+      INSTALLED: 'installed',
+      NOT_INSTALLED: 'not_installed',
+    },
+    RunningState: {
+      CANNOT_RUN: 'cannot_run',
+      READY_TO_RUN: 'ready_to_run',
+      RUNNING: 'running',
+    },
+    getDetails: () => null,
+    getIsInstalled: () => false,
+    runningState: () => 'cannot_run',
+  };
+  chrome.csi ??= () => ({
+    startE: Math.round(performance.timeOrigin),
+    onloadT: Math.round(performance.timeOrigin + performance.now()),
+    pageT: performance.now(),
+    tran: 15,
+  });
+  chrome.loadTimes ??= () => ({
+    requestTime: performance.timeOrigin / 1000,
+    startLoadTime: performance.timeOrigin / 1000,
+    commitLoadTime: now(),
+    finishDocumentLoadTime: now(),
+    finishLoadTime: now(),
+    firstPaintTime: now(),
+    firstPaintAfterLoadTime: 0,
+    navigationType: 'Other',
+    wasFetchedViaSpdy: true,
+    wasNpnNegotiated: true,
+    npnNegotiatedProtocol: 'h2',
+    wasAlternateProtocolAvailable: false,
+    connectionInfo: 'h2',
+  });
+  w.chrome = chrome;
+
+  const proto = (
+    window as unknown as { NavigatorUAData?: { prototype: object } }
+  ).NavigatorUAData?.prototype;
+  if (!proto) return;
+  const add = (list: Brand[], full: boolean) =>
+    list.some((b) => b.brand === 'Google Chrome')
+      ? list
+      : [...list, { brand: 'Google Chrome', version: full ? version : major }];
+  const brands = Object.getOwnPropertyDescriptor(proto, 'brands')?.get;
+  if (brands) {
+    Object.defineProperty(proto, 'brands', {
+      configurable: true,
+      enumerable: true,
+      get(this: object) {
+        return Object.freeze(add(brands.call(this) as Brand[], false));
+      },
+    });
+  }
+  const high = (proto as Record<string, unknown>).getHighEntropyValues as (
+    hints: string[],
+  ) => Promise<Record<string, unknown>>;
+  if (typeof high === 'function') {
+    (proto as Record<string, unknown>).getHighEntropyValues = function (
+      this: object,
+      hints: string[],
+    ) {
+      return high.call(this, hints).then((values) => {
+        if (Array.isArray(values.brands)) {
+          values.brands = add(values.brands as Brand[], false);
+        }
+        if (Array.isArray(values.fullVersionList)) {
+          values.fullVersionList = add(values.fullVersionList as Brand[], true);
+        }
+        return values;
+      });
+    };
+  }
+}
+if (window === window.top && location.hostname === 'accounts.google.com') {
+  try {
+    contextBridge.executeInMainWorld({
+      func: chromeLikeSignIn,
+      args: [process.versions.chrome],
+    });
+  } catch {
+    // Not available: sign-in may be refused, nothing else changes.
+  }
+}
 
 /**
  * Inverts the page's colors and turns the hues back (blue stays blue), then

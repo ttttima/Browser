@@ -985,19 +985,18 @@ const GOOGLE_SIGN_OUT =
   'https://accounts.google.com/Logout?continue=https%3A%2F%2Fwww.google.com%2F';
 
 // Google's sign-in refuses browsers it doesn't know ("This browser or app
-// may not be secure") and spots an embedded Chromium even with a Chrome user
-// agent. Firefox is allowed, so its sign-in pages see Terra as Firefox: in
-// the request headers (with Chromium's "client hints" left out, as Firefox
-// sends none) and in the page's own navigator.userAgent.
+// may not be secure"). Terra's engine is Chrome's, but its brand list
+// ("client hints") says only "Chromium". On accounts.google.com the
+// requests also name "Google Chrome", like Chrome itself; tab-preload.ts
+// does the same for the page's scripts and fills in window.chrome.
 const SIGN_IN_URLS = ['https://accounts.google.com/*'];
-const FIREFOX_UA =
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0';
-const isSignInUrl = (url: string) =>
-  url.startsWith('https://accounts.google.com/');
+const CHROME_VERSION = process.versions.chrome;
 
-function useSignInIdentity(contents: WebContents, url: string) {
-  const want = isSignInUrl(url) ? FIREFOX_UA : app.userAgentFallback;
-  if (contents.getUserAgent() !== want) contents.setUserAgent(want);
+/** Adds "Google Chrome" to a sec-ch-ua brand list (major or full versions). */
+function withChromeBrand(list: string, full: boolean) {
+  if (/"Google Chrome"/.test(list)) return list;
+  const version = full ? CHROME_VERSION : CHROME_VERSION.split('.')[0];
+  return `${list}, "Google Chrome";v="${version}"`;
 }
 
 function signInHeaders(ses: Session) {
@@ -1006,9 +1005,13 @@ function signInHeaders(ses: Session) {
     (details, callback) => {
       const headers = { ...details.requestHeaders };
       for (const name of Object.keys(headers)) {
-        if (/^(user-agent|sec-ch-ua.*)$/i.test(name)) delete headers[name];
+        const lower = name.toLowerCase();
+        if (lower === 'sec-ch-ua') {
+          headers[name] = withChromeBrand(headers[name], false);
+        } else if (lower === 'sec-ch-ua-full-version-list') {
+          headers[name] = withChromeBrand(headers[name], true);
+        }
       }
-      headers['User-Agent'] = FIREFOX_UA;
       callback({ requestHeaders: headers });
     },
   );
@@ -1544,11 +1547,6 @@ function wireTab(tab: Tab) {
     if (isActive()) focusAddressBar();
   });
 
-  contents.on('did-start-navigation', (details) => {
-    if (details.isMainFrame && !details.isSameDocument) {
-      useSignInIdentity(contents, details.url);
-    }
-  });
   contents.on('did-start-navigation', (details) => {
     if (!details.isMainFrame || details.isSameDocument) return;
     dropNotices(tab.id, true);
