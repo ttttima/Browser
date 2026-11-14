@@ -9,6 +9,7 @@ import {
   WebContentsView,
   ipcMain,
   nativeTheme,
+  screen,
   session,
   shell,
   systemPreferences,
@@ -49,6 +50,7 @@ import {
   saveLogin,
 } from './passwords';
 import { loadSession, saveSession } from './session-store';
+import { loadSpaces, saveSpaces, type Space } from './spaces-store';
 import {
   adsAllowed,
   getPermission,
@@ -99,6 +101,12 @@ import {
   AUTO_REFRESH_MS,
   HOLD_TO_REFRESH_MS,
   GLASS_COLORS,
+  SLEEP_CHOICES,
+  SPACE_COLORS,
+  SPLIT_GAP,
+  SPLIT_MIN_WIDTH,
+  type SpaceInfo,
+  type SplitInfo,
   type GlassColors,
   SEARCH_ENGINES,
   themeBackground,
@@ -212,13 +220,34 @@ interface Tab {
   autoRefreshTimer: ReturnType<typeof setTimeout> | null;
   /** Private tab: separate in-memory session, nothing is remembered. */
   isPrivate: boolean;
-  /** Restored tab that loads only when first opened. */
+  /** Not loaded (restored, or asleep): loads only when shown. */
   lazyUrl: string | null;
+  /** Back/forward history kept while asleep, restored when it wakes. */
+  sleptHistory: {
+    entries: Electron.NavigationEntry[];
+    index: number;
+  } | null;
+  /** When it was last on screen (Date.now()), for sleeping unused tabs. */
+  lastShown: number;
+  /** The space it belongs to. */
+  spaceId: string;
 }
 
 let window: BrowserWindow | null = null;
+/** Every tab of every space; their order within one space is what shows. */
 let tabs: Tab[] = [];
 let activeTabId: number | null = null;
+/** The tab that was active before the current one (split view shortcut). */
+let previousTabId: number | null = null;
+
+const savedSpaces = loadSpaces();
+let spaces: Space[] = savedSpaces.spaces;
+let activeSpaceId = savedSpaces.active;
+/** The tab each space had open, to come back to it. */
+const spaceActiveTab = new Map<string, number>();
+
+/** Two tabs side by side (one split view at a time). */
+let split: SplitInfo | null = null;
 let nextTabId = 1;
 let closedTabUrls: string[] = [];
 let htmlFullScreen = false;
@@ -324,6 +353,9 @@ function sanitizeSettings(value: Partial<Settings>): Settings {
     forceDark: value.forceDark === true,
     scrollTabs: value.scrollTabs === true,
     holdToAutoRefresh: value.holdToAutoRefresh === true,
+    sleepTabsAfter: SLEEP_CHOICES.includes(Number(value.sleepTabsAfter))
+      ? Number(value.sleepTabsAfter)
+      : DEFAULT_SETTINGS.sleepTabsAfter,
     askDownloadLocation: value.askDownloadLocation === true,
     bindings: sanitizeBindings(value.bindings),
     customBindings: sanitizeCustomBindings(value.customBindings),
@@ -597,9 +629,128 @@ function tabTitle(tab: Tab) {
   }
 }
 
+// ---------------------------------------------------------------- spaces
+
+/** The open space's tabs, in their order. */
+function spaceTabs(spaceId = activeSpaceId) {
+  return tabs.filter((tab) => tab.spaceId === spaceId);
+}
+
+/** Puts one space's tabs in a new order (other spaces' tabs keep theirs). */
+function setSpaceOrder(spaceId: string, order: Tab[]) {
+  tabs = [...tabs.filter((tab) => tab.spaceId !== spaceId), ...order];
+}
+
+function persistSpaces() {
+  saveSpaces({ spaces, active: activeSpaceId });
+}
+
+function spaceInfos(): SpaceInfo[] {
+  return spaces.map((space) => ({
+    ...space,
+    tabCount: tabs.filter((tab) => tab.spaceId === space.id && !tab.isNewTab)
+      .length,
+  }));
+}
+
+/** Opens a space: the tab it had open, or a new tab page when it's empty. */
+function switchSpace(id: string) {
+  if (id === activeSpaceId || !spaces.some((s) => s.id === id)) return;
+  if (activeTabId !== null) spaceActiveTab.set(activeSpaceId, activeTabId);
+  activeSpaceId = id;
+  persistSpaces();
+  const list = spaceTabs(id);
+  const remembered = spaceActiveTab.get(id);
+  const target = list.find((t) => t.id === remembered) ?? list[0];
+  if (target) activateTab(target.id);
+  else createTab(settings.homePage || null);
+}
+
+function cycleSpace(step: number) {
+  if (spaces.length < 2) return;
+  const index = spaces.findIndex((s) => s.id === activeSpaceId);
+  switchSpace(spaces[(index + step + spaces.length) % spaces.length].id);
+}
+
+/** Makes a space and opens it (or only makes it, with `open` false). */
+function createSpace(name: string, open = true) {
+  const used = new Set(spaces.map((s) => s.color));
+  const color =
+    SPACE_COLORS.find((c) => !used.has(c.color))?.color ??
+    SPACE_COLORS[spaces.length % SPACE_COLORS.length].color;
+  const space: Space = {
+    id: `s${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+    name: name.trim().slice(0, 64) || `Space ${spaces.length + 1}`,
+    color,
+  };
+  spaces.push(space);
+  persistSpaces();
+  if (open) switchSpace(space.id);
+  else sendTabs();
+  return space.id;
+}
+
+function updateSpace(id: string, changes: { name?: string; color?: string }) {
+  const space = spaces.find((s) => s.id === id);
+  if (!space) return;
+  if (typeof changes.name === 'string' && changes.name.trim()) {
+    space.name = changes.name.trim().slice(0, 64);
+  }
+  if (SPACE_COLORS.some((c) => c.color === changes.color)) {
+    space.color = changes.color!;
+  }
+  persistSpaces();
+  sendTabs();
+}
+
+/** Deletes a space and closes its tabs (never the last space). */
+function deleteSpace(id: string) {
+  if (spaces.length < 2 || !spaces.some((s) => s.id === id)) return;
+  if (id === activeSpaceId) {
+    const index = spaces.findIndex((s) => s.id === id);
+    switchSpace(spaces[index === 0 ? 1 : index - 1].id);
+  }
+  spaces = spaces.filter((s) => s.id !== id);
+  spaceActiveTab.delete(id);
+  for (const tab of spaceTabs(id)) closeTab(tab.id);
+  persistSpaces();
+  sendTabs();
+}
+
+/** Moves a tab to another space; its old space shows its next tab. */
+function moveTabToSpace(id: number, spaceId: string) {
+  const tab = findTab(id);
+  if (!tab || tab.spaceId === spaceId) return;
+  if (!spaces.some((s) => s.id === spaceId)) return;
+  if (split && (split.left === id || split.right === id)) split = null;
+  const wasActive = activeTabId === id;
+  const from = tab.spaceId;
+  const fromList = spaceTabs(from);
+  const index = fromList.indexOf(tab);
+  tabs.splice(tabs.indexOf(tab), 1);
+  tab.spaceId = spaceId;
+  tabs.push(tab);
+  spaceActiveTab.set(spaceId, tab.id);
+  if (wasActive) {
+    const rest = spaceTabs(from);
+    if (rest.length) activateTab(rest[Math.min(index, rest.length - 1)].id);
+    else createTab(settings.homePage || null);
+  } else {
+    sendTabs();
+  }
+}
+
 function sendTabs() {
+  const shown = spaceTabs();
+  const shownIds = new Set(shown.map((t) => t.id));
   const payload: TabsState = {
-    tabs: tabs.map(
+    spaces: spaceInfos(),
+    activeSpaceId,
+    split:
+      split && shownIds.has(split.left) && shownIds.has(split.right)
+        ? { ...split }
+        : null,
+    tabs: shown.map(
       (tab): TabInfo => ({
         id: tab.id,
         title: tabTitle(tab),
@@ -612,6 +763,7 @@ function sendTabs() {
         muted: pageOf(tab)?.isAudioMuted() ?? false,
         autoRefresh: tab.autoRefresh,
         isPrivate: tab.isPrivate,
+        asleep: !!tab.lazyUrl,
       }),
     ),
     activeTabId,
@@ -634,6 +786,7 @@ function persistSession() {
         url: shownUrl(tab),
         title: tabTitle(tab),
         pinned: tab.pinned,
+        space: tab.spaceId,
       }))
       .filter((tab) => /^(https?|file):/i.test(tab.url)),
     active: Math.max(0, active),
@@ -698,8 +851,10 @@ function pageBounds(win: BrowserWindow): Rect {
  * page is hidden in both cases, and during animations that use a picture.
  */
 function pageShouldShow(tab: Tab) {
+  const onScreen =
+    tab.id === activeTabId || tab.id === splitPartnerOf(activeTabId);
   return (
-    tab.id === activeTabId &&
+    onScreen &&
     !settingsOpen &&
     !tab.isNewTab &&
     !tab.lazyUrl &&
@@ -708,21 +863,144 @@ function pageShouldShow(tab: Tab) {
   );
 }
 
+// ---------------------------------------------------------------- split view
+
+/** The tab shown next to `id` in the split view, if it's showing. */
+function splitPartnerOf(id: number | null) {
+  if (!split || id === null || htmlFullScreen) return null;
+  if (split.left === id) return split.right;
+  if (split.right === id) return split.left;
+  return null;
+}
+
+/** Where each page of a split view goes inside the page area. */
+function splitRects(area: Rect): [Rect, Rect] {
+  const ratio = split?.ratio ?? 0.5;
+  const room = Math.max(0, area.width - SPLIT_GAP);
+  const leftWidth = Math.round(room * ratio);
+  return [
+    { ...area, width: leftWidth },
+    {
+      ...area,
+      x: area.x + leftWidth + SPLIT_GAP,
+      width: room - leftWidth,
+    },
+  ];
+}
+
+/** Puts two web tabs side by side and shows them. */
+function startSplit(leftId: number, rightId: number) {
+  const left = findTab(leftId);
+  const right = findTab(rightId);
+  if (!left || !right || leftId === rightId) return;
+  if (left.isNewTab || right.isNewTab) return;
+  if (right.spaceId !== left.spaceId) moveTabToSpace(rightId, left.spaceId);
+  split = { left: leftId, right: rightId, ratio: 0.5 };
+  activateTab(activeTabId === rightId ? rightId : leftId);
+}
+
+function endSplit() {
+  if (!split) return;
+  split = null;
+  layout();
+  sendTabs();
+}
+
+/** The split view shortcut: on with the last tab used, or off again. */
+function toggleSplitView() {
+  if (splitPartnerOf(activeTabId) !== null) return endSplit();
+  const current = activeTab();
+  const other = findTab(previousTabId ?? -1);
+  const partner =
+    other && other.spaceId === activeSpaceId && !other.isNewTab
+      ? other
+      : spaceTabs().find((t) => t !== current && !t.isNewTab);
+  if (current && partner) startSplit(current.id, partner.id);
+}
+
+/** Dragging the divider: follows the mouse until the button is let go. */
+let splitDrag: ReturnType<typeof setInterval> | null = null;
+
+function startSplitDrag() {
+  if (!window || !split || splitDrag) return;
+  const win = window;
+  splitDrag = setInterval(() => {
+    if (!split || win.isDestroyed()) return endSplitDrag();
+    const area = pageBounds(win);
+    const content = win.getContentBounds();
+    const x = screen.getCursorScreenPoint().x - content.x - area.x;
+    const room = area.width - SPLIT_GAP;
+    if (room <= SPLIT_MIN_WIDTH * 2) return;
+    const left = Math.min(
+      room - SPLIT_MIN_WIDTH,
+      Math.max(SPLIT_MIN_WIDTH, x - SPLIT_GAP / 2),
+    );
+    const ratio = left / room;
+    if (Math.abs(ratio - split.ratio) < 0.0005) return;
+    split.ratio = ratio;
+    layout();
+  }, 16);
+}
+
+function endSplitDrag() {
+  if (!splitDrag) return;
+  clearInterval(splitDrag);
+  splitDrag = null;
+  sendTabs();
+}
+
+/**
+ * Puts the visible page (or both pages of a split view) in `area`, and
+ * returns the split view's two places when it's showing.
+ */
+function placePages(area: Rect): [Rect, Rect] | null {
+  const rects =
+    splitPartnerOf(activeTabId) !== null && split && !settingsOpen
+      ? splitRects(area)
+      : null;
+  for (const tab of tabs) {
+    if (!pageShouldShow(tab) || sidebarSliding) continue;
+    if (rects && split) {
+      tab.view.setBounds(tab.id === split.left ? rects[0] : rects[1]);
+    } else {
+      tab.view.setBounds(area);
+    }
+  }
+  return rects;
+}
+
 function layout() {
   if (!window || window.isDestroyed()) return;
-  const bounds = pageBounds(window);
-
   for (const tab of tabs) {
     const visible = pageShouldShow(tab) && !sidebarSliding;
     // A rounded card next to the sidebar and toolbar; edge to edge in
     // video fullscreen.
     tab.view.setBorderRadius(htmlFullScreen ? 0 : PAGE_RADIUS);
     tab.view.setVisible(visible);
-    // While the page moves with the sidebar (slidePageLive), it's placed by
-    // that animation, not here.
-    if (visible) tab.view.setBounds(liveBounds ?? bounds);
+    if (visible) tab.lastShown = Date.now();
   }
+  // While the page moves with the sidebar (slidePageLive), liveBounds is
+  // where the animation has it.
+  sendSplitHandle(placePages(liveBounds ?? pageBounds(window)));
   samplePageEdgesSoon();
+}
+
+/** Where the UI draws the divider between the two pages (or null). */
+let lastSplitHandle = '';
+function sendSplitHandle(rects: [Rect, Rect] | null) {
+  const handle =
+    rects && !sidebarSliding && !windowAnimating
+      ? {
+          x: rects[0].x + rects[0].width,
+          y: rects[0].y,
+          width: SPLIT_GAP,
+          height: rects[0].height,
+        }
+      : null;
+  const key = JSON.stringify(handle);
+  if (key === lastSplitHandle) return;
+  lastSplitHandle = key;
+  sendToUi('terra:split-handle', handle);
 }
 
 // ---------------------------------------------------------------- page edges
@@ -977,15 +1255,22 @@ function activateTab(id: number) {
   const tab = findTab(id);
   if (!tab) return;
   if (activeTabId !== id) sendToUi('terra:find-close', null);
-  activeTabId = id;
-  settingsOpen = false;
-  if (tab.lazyUrl) {
-    const url = tab.lazyUrl;
-    tab.lazyUrl = null;
-    pageOf(tab)
-      ?.loadURL(url)
-      .catch(() => {});
+  if (activeTabId !== id && activeTabId !== null) {
+    previousTabId = activeTabId;
+    const old = findTab(activeTabId);
+    if (old) old.lastShown = Date.now();
   }
+  activeTabId = id;
+  // A tab from another space (a link, a bookmark): that space opens.
+  if (tab.spaceId !== activeSpaceId) {
+    activeSpaceId = tab.spaceId;
+    persistSpaces();
+  }
+  spaceActiveTab.set(tab.spaceId, id);
+  settingsOpen = false;
+  wakeTab(tab);
+  const partner = findTab(splitPartnerOf(id) ?? -1);
+  if (partner) wakeTab(partner);
   sendNotice();
   layout();
   sendTabs();
@@ -1113,26 +1398,8 @@ async function clearBrowsingData() {
   clearHistory();
 }
 
-/** Opens a tab. With no URL it shows the clean search page. */
-function createTab(
-  url: string | null,
-  options: {
-    activate?: boolean;
-    nextToActive?: boolean;
-    /** First of the unpinned tabs (scrolling past the top). */
-    atTop?: boolean;
-    isPrivate?: boolean;
-    pinned?: boolean;
-    /** Restored tab: show it, but load only when it's opened. */
-    lazyTitle?: string;
-  } = {},
-) {
-  const win = window;
-  if (!win || win.isDestroyed()) return null;
-  const { activate = true, nextToActive = false } = options;
-  const isPrivate = options.isPrivate === true;
-  if (isPrivate) setUpPrivateSession();
-
+/** A tab's web page, not placed or shown yet. */
+function makeTabView(isPrivate: boolean) {
   const view = new WebContentsView({
     webPreferences: {
       // Hosts the dark mode forcer and the password helper; exposes
@@ -1150,6 +1417,120 @@ function createTab(
   });
   view.setBackgroundColor(tabBackground());
   view.setVisible(false);
+  return view;
+}
+
+// ---------------------------------------------------------------- sleeping tabs
+
+/** Loads a tab that isn't loaded (restored, or asleep). */
+function wakeTab(tab: Tab) {
+  const url = tab.lazyUrl;
+  if (!url) return;
+  tab.lazyUrl = null;
+  const contents = pageOf(tab);
+  if (!contents) return;
+  const history = tab.sleptHistory;
+  tab.sleptHistory = null;
+  if (history?.entries.length) {
+    // Back and forward work as before it slept.
+    contents.navigationHistory
+      .restore({ entries: history.entries, index: history.index })
+      .catch(() => contents.loadURL(url).catch(() => {}));
+  } else {
+    contents.loadURL(url).catch(() => {});
+  }
+}
+
+/** Whether a tab may go to sleep now (it isn't seen, heard or busy). */
+function canSleep(tab: Tab) {
+  const contents = pageOf(tab);
+  return (
+    !!contents &&
+    !tab.lazyUrl &&
+    !tab.isNewTab &&
+    !pageShouldShow(tab) &&
+    tab.id !== activeTabId &&
+    tab.id !== splitPartnerOf(activeTabId) &&
+    !tab.audible &&
+    !contents.isCurrentlyAudible() &&
+    !tab.autoRefresh &&
+    !contents.isDevToolsOpened() &&
+    /^(https?|file):/i.test(shownUrl(tab))
+  );
+}
+
+/**
+ * Frees a tab's memory: its page is closed and replaced by an empty one,
+ * keeping the title, icon and back/forward history. It loads again when
+ * it's opened.
+ */
+function sleepTab(tab: Tab) {
+  const win = window;
+  const contents = pageOf(tab);
+  if (!win || win.isDestroyed() || !contents || !canSleep(tab)) return;
+  const url = shownUrl(tab);
+  const history = contents.navigationHistory;
+  const entries = history.getAllEntries();
+  // An error page in the history would come back as itself: skip it.
+  tab.sleptHistory = entries.some((e) => e.url.startsWith('data:'))
+    ? null
+    : { entries, index: history.getActiveIndex() };
+  tab.lazyUrl = url;
+  tab.failedUrl = null;
+  dropNotices(tab.id);
+
+  const old = tab.view;
+  const index = win.contentView.children.indexOf(old);
+  tab.view = makeTabView(tab.isPrivate);
+  win.contentView.addChildView(tab.view, index === -1 ? undefined : index);
+  win.contentView.removeChildView(old);
+  wireTab(tab);
+  if (!contents.isDestroyed()) contents.close();
+  sendTabs();
+}
+
+/** Every half minute: tabs unused for "Sleep unused tabs" go to sleep. */
+function sleepUnusedTabs() {
+  const minutes = settings.sleepTabsAfter;
+  if (!minutes) return;
+  const cutoff = Date.now() - minutes * 60_000;
+  for (const tab of tabs) {
+    if (tab.lastShown < cutoff && canSleep(tab)) sleepTab(tab);
+  }
+}
+
+/** Puts every tab but the ones on screen to sleep right away. */
+function sleepOtherTabs() {
+  for (const tab of tabs) if (canSleep(tab)) sleepTab(tab);
+}
+
+/** Opens a tab. With no URL it shows the clean search page. */
+function createTab(
+  url: string | null,
+  options: {
+    activate?: boolean;
+    nextToActive?: boolean;
+    /** First of the unpinned tabs (scrolling past the top). */
+    atTop?: boolean;
+    isPrivate?: boolean;
+    pinned?: boolean;
+    /** Restored tab: show it, but load only when it's opened. */
+    lazyTitle?: string;
+    /** The space it goes in (default: the open one). */
+    spaceId?: string;
+  } = {},
+) {
+  const win = window;
+  if (!win || win.isDestroyed()) return null;
+  const { activate = true, nextToActive = false } = options;
+  const isPrivate = options.isPrivate === true;
+  if (isPrivate) setUpPrivateSession();
+
+  const view = makeTabView(isPrivate);
+  const spaceId =
+    options.spaceId && spaces.some((s) => s.id === options.spaceId)
+      ? options.spaceId
+      : activeSpaceId;
 
   const tab: Tab = {
     id: nextTabId++,
@@ -1168,19 +1549,24 @@ function createTab(
     autoRefreshTimer: null,
     isPrivate,
     lazyUrl: options.lazyTitle !== undefined ? url : null,
+    sleptHistory: null,
+    lastShown: Date.now(),
+    spaceId,
   };
   if (options.lazyTitle) tab.title = options.lazyTitle;
 
-  const activeIndex = tabs.findIndex((t) => t.id === activeTabId);
-  const pinnedCount = tabs.filter((t) => t.pinned).length;
+  const list = spaceTabs(spaceId);
+  const activeIndex = list.findIndex((t) => t.id === activeTabId);
+  const pinnedCount = list.filter((t) => t.pinned).length;
   if (tab.pinned || options.atTop) {
-    tabs.splice(pinnedCount, 0, tab);
+    list.splice(pinnedCount, 0, tab);
   } else if (nextToActive && activeIndex !== -1) {
     // Like Chrome: links open right below the tab they came from.
-    tabs.splice(Math.max(pinnedCount, activeIndex + 1), 0, tab);
+    list.splice(Math.max(pinnedCount, activeIndex + 1), 0, tab);
   } else {
-    tabs.push(tab);
+    list.push(tab);
   }
+  setSpaceOrder(spaceId, list);
 
   win.contentView.addChildView(view);
   wireTab(tab);
@@ -1197,10 +1583,14 @@ function createTab(
 }
 
 function closeTab(id: number) {
-  const index = tabs.findIndex((tab) => tab.id === id);
-  if (index === -1) return;
-  const [tab] = tabs.splice(index, 1);
+  const found = findTab(id);
+  if (!found) return;
+  // Where it was among its space's tabs: the next one there takes over.
+  const index = spaceTabs(found.spaceId).indexOf(found);
+  const [tab] = tabs.splice(tabs.indexOf(found), 1);
   if (tab.autoRefreshTimer) clearTimeout(tab.autoRefreshTimer);
+  if (split && (split.left === id || split.right === id)) split = null;
+  if (previousTabId === id) previousTabId = null;
   dropNotices(tab.id);
 
   const url = shownUrl(tab);
@@ -1223,37 +1613,47 @@ function closeTab(id: number) {
   }
 
   if (activeTabId === id) {
-    // Prefer the tab below the closed one, otherwise the one above.
-    activateTab(tabs[Math.min(index, tabs.length - 1)].id);
+    // Prefer the tab below the closed one, otherwise the one above. The
+    // space's last tab gone: it gets a new tab page (other spaces have tabs).
+    const rest = spaceTabs(tab.spaceId);
+    if (rest.length) activateTab(rest[Math.min(index, rest.length - 1)].id);
+    else createTab(settings.homePage || null, { spaceId: tab.spaceId });
   } else {
+    layout();
     sendTabs();
   }
 }
 
+/** Drag and drop in the sidebar: `toIndex` counts the open space's tabs. */
 function moveTab(id: number, toIndex: number) {
-  const from = tabs.findIndex((tab) => tab.id === id);
-  if (from === -1) return;
-  const [tab] = tabs.splice(from, 1);
+  const moved = findTab(id);
+  if (!moved) return;
+  const list = spaceTabs(moved.spaceId);
+  const from = list.indexOf(moved);
+  const [tab] = list.splice(from, 1);
   // toIndex counts the moved tab in its old place, so adjust when moving down.
-  const pinnedCount = tabs.filter((t) => t.pinned).length;
+  const pinnedCount = list.filter((t) => t.pinned).length;
   // Pinned tabs stay above the others.
-  const [min, max] = tab.pinned ? [0, pinnedCount] : [pinnedCount, tabs.length];
+  const [min, max] = tab.pinned ? [0, pinnedCount] : [pinnedCount, list.length];
   const target = Math.max(
     min,
     Math.min(max, from < toIndex ? toIndex - 1 : toIndex),
   );
-  tabs.splice(target, 0, tab);
+  list.splice(target, 0, tab);
+  setSpaceOrder(tab.spaceId, list);
   sendTabs();
 }
 
 function togglePin(id: number) {
   const tab = findTab(id);
   if (!tab) return;
-  tabs.splice(tabs.indexOf(tab), 1);
+  const list = spaceTabs(tab.spaceId);
+  list.splice(list.indexOf(tab), 1);
   tab.pinned = !tab.pinned;
   // Pinning puts it last among pinned tabs; unpinning, first of the rest.
-  const pinnedCount = tabs.filter((t) => t.pinned).length;
-  tabs.splice(pinnedCount, 0, tab);
+  const pinnedCount = list.filter((t) => t.pinned).length;
+  list.splice(pinnedCount, 0, tab);
+  setSpaceOrder(tab.spaceId, list);
   sendTabs();
 }
 
@@ -1277,9 +1677,10 @@ function newPrivateTab() {
 }
 
 function cycleTab(step: number) {
-  if (tabs.length < 2) return;
-  const index = tabs.findIndex((tab) => tab.id === activeTabId);
-  activateTab(tabs[(index + step + tabs.length) % tabs.length].id);
+  const list = spaceTabs();
+  if (list.length < 2) return;
+  const index = list.findIndex((tab) => tab.id === activeTabId);
+  activateTab(list[(index + step + list.length) % list.length].id);
 }
 
 function newTab() {
@@ -1299,8 +1700,9 @@ let scrolledNewTabId: number | null = null;
  * empty tabs pile up.
  */
 function scrollTabs(step: number) {
-  const index = tabs.findIndex((t) => t.id === activeTabId);
-  const current = tabs[index];
+  const list = spaceTabs();
+  const index = list.findIndex((t) => t.id === activeTabId);
+  const current = list[index];
   if (!current) return;
   if (step < 0 && index === 0) {
     if (current.isNewTab) return; // already on a fresh new tab page
@@ -1309,7 +1711,7 @@ function scrollTabs(step: number) {
     focusAddressBar();
     return;
   }
-  const next = tabs[index + step];
+  const next = list[index + step];
   if (!next) return;
   activateTab(next.id);
   if (current.id === scrolledNewTabId) {
@@ -1357,7 +1759,10 @@ async function toggleSidebar() {
     !!tab &&
     !!contents &&
     pageShouldShow(tab) &&
-    (contents.isFocused() || liveTimer !== null) &&
+    // A split view is two pages: they move live too (the picture is one).
+    (contents.isFocused() ||
+      liveTimer !== null ||
+      splitPartnerOf(activeTabId) !== null) &&
     !systemPreferences.getAnimationSettings().prefersReducedMotion;
   if (typingInPage && window) {
     const from = liveBounds ?? pageBounds(window);
@@ -1420,8 +1825,7 @@ function slidePageLive(from: Rect, to: Rect) {
       width: mix(from.width, to.width),
       height: mix(from.height, to.height),
     };
-    const page = activeTab()?.view;
-    if (page) page.setBounds(liveBounds);
+    placePages(liveBounds);
     if (progress >= 1) {
       if (liveTimer) clearInterval(liveTimer);
       liveTimer = null;
@@ -1500,8 +1904,31 @@ function updateForcedDarkAll() {
 
 /** Hooks up all events for one tab's web page. */
 function wireTab(tab: Tab) {
-  const contents = tab.view.webContents;
+  const view = tab.view;
+  const contents = view.webContents;
   const isActive = () => tab.id === activeTabId;
+
+  // Split view: clicking into one of the two pages (or tabbing into it)
+  // makes it the active tab (address bar, shortcuts), without moving
+  // anything.
+  const takeOverInSplit = () => {
+    if (tab.view !== view || activeTabId === tab.id) return;
+    if (splitPartnerOf(activeTabId) !== tab.id) return;
+    previousTabId = activeTabId;
+    activeTabId = tab.id;
+    spaceActiveTab.set(tab.spaceId, tab.id);
+    sendToUi('terra:find-close', null);
+    sendNotice();
+    sendTabs();
+    sendState();
+    updateWindowTitle();
+  };
+  contents.on('focus', takeOverInSplit);
+  contents.on('input-event', (_event, input) => {
+    if (input.type === 'mouseDown') takeOverInSplit();
+    // The divider is let go over a page.
+    if (input.type === 'mouseUp') endSplitDrag();
+  });
 
   const changed = () => {
     sendTabs();
@@ -1711,9 +2138,10 @@ function wireTab(tab: Tab) {
     sendTabs();
   });
 
-  // A page can close itself with window.close().
+  // A page can close itself with window.close(). (Not a page put to sleep:
+  // the tab has a new one by then.)
   contents.on('destroyed', () => {
-    if (findTab(tab.id)) closeTab(tab.id);
+    if (findTab(tab.id) && tab.view === view) closeTab(tab.id);
   });
 }
 
@@ -2037,6 +2465,14 @@ function runAction(action: ActionId) {
       return cycleTab(1);
     case 'previousTab':
       return cycleTab(-1);
+    case 'nextSpace':
+      return cycleSpace(1);
+    case 'previousSpace':
+      return cycleSpace(-1);
+    case 'splitView':
+      return toggleSplitView();
+    case 'sleepTab':
+      return sleepOtherTabs();
     case 'focusAddress':
       return focusAddressBar();
     case 'toggleSidebar':
@@ -2536,9 +2972,49 @@ function showTabMenu(id: number) {
   const tab = findTab(id);
   if (!tab || !window) return;
   const contents = pageOf(tab);
-  const index = tabs.indexOf(tab);
+  const list = spaceTabs(tab.spaceId);
+  const index = list.indexOf(tab);
   const url = shownUrl(tab);
   const closeAll = (ids: number[]) => ids.forEach((tabId) => closeTab(tabId));
+  const inSplit = !!split && (split.left === id || split.right === id);
+  const current = activeTab();
+  // Web tabs this one can be shown next to.
+  const partners = list.filter((t) => t !== tab && !t.isNewTab).slice(0, 20);
+  const splitItem: Electron.MenuItemConstructorOptions = inSplit
+    ? { label: 'Close split view', click: () => endSplit() }
+    : tab.id !== activeTabId && current && !current.isNewTab && !tab.isNewTab
+      ? {
+          label: 'Show next to current tab',
+          click: () => startSplit(current.id, tab.id),
+        }
+      : {
+          label: 'Split view with',
+          enabled: !tab.isNewTab && partners.length > 0,
+          submenu: partners.map((t) => ({
+            label: tabTitle(t).slice(0, 60),
+            click: () => startSplit(tab.id, t.id),
+          })),
+        };
+  const spaceItem: Electron.MenuItemConstructorOptions = {
+    label: 'Move to space',
+    submenu: [
+      ...spaces
+        .filter((s) => s.id !== tab.spaceId)
+        .map((s) => ({
+          label: s.name,
+          click: () => moveTabToSpace(id, s.id),
+        })),
+      ...(spaces.length > 1 ? [{ type: 'separator' as const }] : []),
+      {
+        label: 'New space',
+        click: () => {
+          const spaceId = createSpace('', false);
+          moveTabToSpace(id, spaceId);
+          activateTab(id);
+        },
+      },
+    ],
+  };
   Menu.buildFromTemplate([
     { label: 'New tab', click: () => newTab() },
     {
@@ -2558,17 +3034,25 @@ function showTabMenu(id: number) {
       click: () => toggleBookmarkFor(tab),
     },
     { type: 'separator' },
+    splitItem,
+    spaceItem,
+    {
+      label: 'Put to sleep',
+      enabled: canSleep(tab),
+      click: () => sleepTab(tab),
+    },
+    { type: 'separator' },
     { label: 'Close', click: () => closeTab(id) },
     {
       label: 'Close other tabs',
-      enabled: tabs.some((t) => t.id !== id && !t.pinned),
+      enabled: list.some((t) => t.id !== id && !t.pinned),
       click: () =>
-        closeAll(tabs.filter((t) => t.id !== id && !t.pinned).map((t) => t.id)),
+        closeAll(list.filter((t) => t.id !== id && !t.pinned).map((t) => t.id)),
     },
     {
       label: 'Close tabs below',
-      enabled: index < tabs.length - 1,
-      click: () => closeAll(tabs.slice(index + 1).map((t) => t.id)),
+      enabled: index < list.length - 1,
+      click: () => closeAll(list.slice(index + 1).map((t) => t.id)),
     },
     { type: 'separator' },
     {
@@ -2875,6 +3359,10 @@ function createWindow(urls: string[] = []) {
   win.webContents.on('before-input-event', (event, input) => {
     if (handleShortcut(input)) event.preventDefault();
   });
+  // The split view's divider is let go over our UI.
+  win.webContents.on('input-event', (_event, input) => {
+    if (input.type === 'mouseUp') endSplitDrag();
+  });
 
   // Send everything again when the UI (re)loads.
   win.webContents.on('did-finish-load', () => {
@@ -2910,20 +3398,36 @@ function createWindow(urls: string[] = []) {
   let restored = false;
   if (!sessionRestored && settings.startup === 'restore') {
     const saved = loadSession();
+    const created: Tab[] = [];
     for (const tab of saved.tabs) {
-      createTab(tab.url, {
+      const made = createTab(tab.url, {
         lazyTitle: tab.title,
         pinned: tab.pinned,
         activate: false,
+        // Tabs saved before Spaces (or of a deleted space) go in the first.
+        spaceId: spaces.some((s) => s.id === tab.space)
+          ? tab.space
+          : spaces[0].id,
       });
+      if (made) created.push(made);
     }
-    restored = tabs.length > 0;
+    restored = created.length > 0;
     if (restored && urls.length === 0) {
-      activateTab(tabs[Math.min(saved.active, tabs.length - 1)].id);
+      const active = created[Math.min(saved.active, created.length - 1)];
+      // Opens the space of the tab that was open.
+      if (active.spaceId === activeSpaceId || !spaceTabs().length) {
+        activateTab(active.id);
+      } else {
+        activateTab(spaceTabs()[0].id);
+      }
     }
   }
   sessionRestored = true;
   if (urls.length === 0 && !restored) createTab(settings.homePage || null);
+  // Restored, but the open space has no tabs: give it a new tab page.
+  else if (urls.length === 0 && !spaceTabs().length) {
+    createTab(settings.homePage || null);
+  }
   for (const url of urls) createTab(url);
 }
 
@@ -3104,6 +3608,61 @@ function setUpIpc() {
   handle('terra:google-account', () => googleAccount());
   on('terra:google-connect', () => openGooglePage(GOOGLE_SIGN_IN));
   on('terra:google-disconnect', () => openGooglePage(GOOGLE_SIGN_OUT));
+  // Spaces (ui-spaces.ts).
+  const isSpace = (id: unknown): id is string =>
+    typeof id === 'string' && spaces.some((s) => s.id === id);
+  on('terra:space-switch', (id) => {
+    if (isSpace(id)) switchSpace(id);
+  });
+  handle('terra:space-create', (name) =>
+    createSpace(isText(name, 64) ? name : ''),
+  );
+  on('terra:space-update', (id, changes) => {
+    if (!isSpace(id) || typeof changes !== 'object' || !changes) return;
+    const { name, color } = changes as { name?: unknown; color?: unknown };
+    updateSpace(id, {
+      name: isText(name, 64) ? name : undefined,
+      color: typeof color === 'string' ? color : undefined,
+    });
+  });
+  on('terra:space-delete', (id) => {
+    if (isSpace(id)) deleteSpace(id);
+  });
+  on('terra:space-menu', (id) => {
+    const space = spaces.find((s) => s.id === id);
+    if (!space || !window) return;
+    const count = spaceTabs(space.id).filter((t) => !t.isNewTab).length;
+    Menu.buildFromTemplate([
+      {
+        label: 'Rename',
+        click: () => sendToUi('terra:space-rename', space.id),
+      },
+      {
+        label: 'Color',
+        submenu: SPACE_COLORS.map((c) => ({
+          label: c.name,
+          type: 'radio' as const,
+          checked: c.color === space.color,
+          click: () => updateSpace(space.id, { color: c.color }),
+        })),
+      },
+      { type: 'separator' },
+      {
+        label:
+          count > 0
+            ? `Delete space and its ${count} ${count === 1 ? 'tab' : 'tabs'}`
+            : 'Delete space',
+        enabled: spaces.length > 1,
+        click: () => deleteSpace(space.id),
+      },
+    ]).popup({ window });
+  });
+  // Split view (renderer.ts): the divider and its button on the tabs.
+  on('terra:split-drag', (dragging) => {
+    if (dragging === true) startSplitDrag();
+    else endSplitDrag();
+  });
+  on('terra:split-end', () => endSplit());
   on('terra:scroll-tabs', (step) => {
     if (step === 1 || step === -1) scrollTabs(step);
   });
@@ -3388,6 +3947,7 @@ app.whenReady().then(() => {
   initAdblock();
   setUpSession(session.defaultSession, false);
   watchGoogleSignIn();
+  setInterval(sleepUnusedTabs, 30_000);
 
   // Sites that ask for a username and password in a browser box.
   app.on('login', (event, contents, _details, authInfo, callback) => {

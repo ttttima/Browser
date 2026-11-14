@@ -52,6 +52,18 @@
       </div>
 
       <div class="sidebar-body">
+        <button
+          id="space-button"
+          class="row"
+          title="Spaces"
+          aria-haspopup="dialog"
+          aria-expanded="false"
+        >
+          <span class="space-icon" aria-hidden="true"
+            ><span class="space-dot"></span
+          ></span>
+          <span class="label" id="space-name">Main</span>
+        </button>
         <button id="new-tab" class="row" title="New tab">
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
             <line x1="12" y1="5" x2="12" y2="19" />
@@ -88,6 +100,17 @@
       aria-label="Bookmarks"
       hidden
     ></div>
+    <div
+      id="spaces-pop"
+      class="bookmarks-pop"
+      role="dialog"
+      aria-label="Spaces"
+      hidden
+    ></div>
+    <!-- Split view: the divider between the two pages; drag to resize. -->
+    <div id="split-handle" class="split-handle" hidden>
+      <span class="split-grip"></span>
+    </div>
 
     <div id="toolbar" class="bar">
       <div id="address-box" class="address-box">
@@ -673,6 +696,16 @@
                     type="checkbox"
                     class="switch"
                   />
+                </label>
+                <label class="setting-row">
+                  <span>
+                    <strong>Sleep unused tabs</strong>
+                    <small
+                      >Frees their memory; they load again when you open
+                      them</small
+                    >
+                  </span>
+                  <select id="setting-sleep-tabs"></select>
                 </label>
                 <div id="updates-row" class="setting-row">
                   <span>

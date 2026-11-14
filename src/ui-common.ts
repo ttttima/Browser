@@ -40,6 +40,9 @@ export const PATHS = {
   refresh:
     '<path d="M20 11a8 8 0 1 0-2.3 5.7" /><polyline points="20 4 20 10 14 10" />',
   bookmark: '<path d="M6 4h12v16l-6-4-6 4z" />',
+  plus: '<line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />',
+  split:
+    '<rect x="3" y="4" width="18" height="16" rx="2" /><line x1="12" y1="4" x2="12" y2="20" />',
   folder:
     '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />',
   folderPlus:

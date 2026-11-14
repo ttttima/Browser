@@ -6,6 +6,8 @@ export interface SavedTab {
   url: string;
   title: string;
   pinned: boolean;
+  /** The space it belongs to (spaces-store.ts); '' = the first one. */
+  space: string;
 }
 
 export interface SavedSession {
@@ -26,7 +28,12 @@ export function loadSession(): SavedSession {
             /^(https?|file):/i.test(t.url) &&
             isText(t.title, 1024),
         )
-        .map((t) => ({ url: t.url, title: t.title, pinned: t.pinned === true }))
+        .map((t) => ({
+          url: t.url,
+          title: t.title,
+          pinned: t.pinned === true,
+          space: isText(t.space, 64) ? t.space : '',
+        }))
         .slice(0, 500)
     : [];
   const active = Number(saved?.active);

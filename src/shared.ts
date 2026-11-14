@@ -35,15 +35,58 @@ export interface TabInfo {
   isPrivate: boolean;
   /** Reloading every AUTO_REFRESH_MS (hold F5). */
   autoRefresh: boolean;
+  /** Not loaded (asleep, or restored and not opened yet): uses no memory. */
+  asleep: boolean;
+}
+
+/** A set of tabs of its own (Spaces). Only the open space's tabs show. */
+export interface SpaceInfo {
+  id: string;
+  name: string;
+  /** #rrggbb, from SPACE_COLORS. */
+  color: string;
+  tabCount: number;
+}
+
+/** Colors a space can have (its dot in the sidebar). */
+export const SPACE_COLORS = [
+  { name: 'Blue', color: '#4f7cff' },
+  { name: 'Purple', color: '#9b6bff' },
+  { name: 'Pink', color: '#f06aa8' },
+  { name: 'Red', color: '#f0605a' },
+  { name: 'Orange', color: '#f59a3c' },
+  { name: 'Yellow', color: '#e8c547' },
+  { name: 'Green', color: '#4cc27a' },
+  { name: 'Teal', color: '#3cc0c0' },
+];
+
+/** Two tabs side by side; `ratio` is the left one's share of the width. */
+export interface SplitInfo {
+  left: number;
+  right: number;
+  ratio: number;
 }
 
 export interface TabsState {
+  /** The open space's tabs only. */
   tabs: TabInfo[];
   activeTabId: number | null;
+  spaces: SpaceInfo[];
+  activeSpaceId: string;
+  /** The split view, when both of its tabs are in the open space. */
+  split: SplitInfo | null;
   sidebarCollapsed: boolean;
   fullScreen: boolean;
   settingsOpen: boolean;
 }
+
+/** Room between the two pages of a split view (their divider). */
+export const SPLIT_GAP = 8;
+/** Neither page of a split view gets narrower than this. */
+export const SPLIT_MIN_WIDTH = 240;
+
+/** Choices for "Sleep unused tabs", in minutes (0 = never). */
+export const SLEEP_CHOICES = [0, 5, 15, 30, 60, 180];
 
 /** Background colors at the website's left and top edges (#rrggbb). */
 /**
@@ -80,6 +123,10 @@ export const ACTIONS = [
   { id: 'muteTab', label: 'Mute or unmute tab', binding: 'Ctrl+M' },
   { id: 'nextTab', label: 'Next tab', binding: 'Ctrl+Tab' },
   { id: 'previousTab', label: 'Previous tab', binding: 'Ctrl+Shift+Tab' },
+  { id: 'nextSpace', label: 'Next space', binding: '' },
+  { id: 'previousSpace', label: 'Previous space', binding: '' },
+  { id: 'splitView', label: 'Split view with last tab', binding: '' },
+  { id: 'sleepTab', label: 'Put other tabs to sleep', binding: '' },
   { id: 'focusAddress', label: 'Address bar', binding: 'Ctrl+L' },
   { id: 'find', label: 'Find on page', binding: 'Ctrl+F' },
   { id: 'bookmarkPage', label: 'Bookmark this page', binding: 'Ctrl+D' },
@@ -440,6 +487,8 @@ export interface Settings {
   scrollTabs: boolean;
   /** Holding the reload key (F5) for 2 s turns auto-refresh on or off. */
   holdToAutoRefresh: boolean;
+  /** Tabs unused this many minutes go to sleep and free their memory (0 = never). */
+  sleepTabsAfter: number;
   /** Show a Save dialog for every download instead of using Downloads. */
   askDownloadLocation: boolean;
   /** Key or mouse button for each action ("" = not set). */
@@ -510,6 +559,7 @@ export const DEFAULT_SETTINGS: Settings = {
   forceDark: false,
   scrollTabs: false,
   holdToAutoRefresh: false,
+  sleepTabsAfter: 30,
   askDownloadLocation: false,
   bindings: defaultBindings(),
   customBindings: [],

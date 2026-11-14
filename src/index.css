@@ -229,7 +229,8 @@ body.sidebar-sliding .label {
 
 body.sidebar-sliding .tab .tab-close,
 body.sidebar-sliding .tab .tab-audio,
-body.sidebar-sliding .tab .tab-refresh {
+body.sidebar-sliding .tab .tab-refresh,
+body.sidebar-sliding .tab .tab-split {
   display: none;
 }
 
@@ -1928,7 +1929,8 @@ body.settings-open #notice-bar {
 
 /* Speaker on tabs that play sound: click to mute. */
 .tab-audio,
-.tab-refresh {
+.tab-refresh,
+.tab-split {
   width: var(--control-sm);
   height: var(--control-sm);
   min-width: var(--control-sm);
@@ -1937,12 +1939,14 @@ body.settings-open #notice-bar {
 }
 
 .tab-audio[hidden],
-.tab-refresh[hidden] {
+.tab-refresh[hidden],
+.tab-split[hidden] {
   display: none;
 }
 
 .tab-audio:hover:not(:disabled),
-.tab-refresh:hover:not(:disabled) {
+.tab-refresh:hover:not(:disabled),
+.tab-split:hover:not(:disabled) {
   background: var(--chip);
   color: var(--text-strong);
 }
@@ -2134,7 +2138,8 @@ body.sidebar-collapsed #bookmarks-pop-button {
 }
 
 body.sidebar-collapsed .tab-audio,
-body.sidebar-collapsed .tab-refresh {
+body.sidebar-collapsed .tab-refresh,
+body.sidebar-collapsed .tab-split {
   display: none;
 }
 
@@ -2425,4 +2430,82 @@ body.start-open #refresh-chip {
 /* On the tab: the same small button as the speaker, in the accent color. */
 .tab-refresh .icon {
   color: var(--accent);
+}
+
+/* ============================================================ spaces */
+
+/* The open space, above "New tab": its color dot on the 24px icon axis. */
+.space-icon {
+  display: grid;
+  place-items: center;
+  width: var(--icon);
+  height: var(--icon);
+  flex-shrink: 0;
+}
+
+.space-dot {
+  width: var(--space-3);
+  height: var(--space-3);
+  border-radius: var(--radius-full);
+  background: var(--accent);
+}
+
+#space-button.open {
+  background: var(--accent-soft);
+  color: var(--text-strong);
+}
+
+.pop-space:hover .pop-count,
+.pop-space:focus-within .pop-count {
+  display: none;
+}
+
+/* ============================================================ sleeping tabs */
+
+/* Not loaded: a faded icon and quiet title until it's opened. */
+.tab.asleep .tab-icon {
+  opacity: 0.5;
+  filter: grayscale(1);
+}
+
+.tab.asleep:not(.active) .tab-title {
+  color: var(--muted);
+}
+
+/* ============================================================ split view */
+
+/* The other page on screen next to the active one. */
+.tab.split-partner {
+  background: var(--accent-soft);
+}
+
+/* The 8px gap between the two pages: drag it to resize them. */
+.split-handle {
+  position: fixed;
+  z-index: 5;
+  display: grid;
+  place-items: center;
+  cursor: col-resize;
+}
+
+.split-handle[hidden] {
+  display: none;
+}
+
+.split-grip {
+  width: var(--space-1);
+  height: var(--control);
+  border-radius: var(--radius-full);
+  background: var(--chip);
+  transition: background var(--duration);
+}
+
+.split-handle:hover .split-grip,
+body.split-dragging .split-grip {
+  background: var(--muted);
+}
+
+body.split-dragging,
+body.split-dragging * {
+  cursor: col-resize !important;
 }

@@ -6,6 +6,7 @@ import { updateAutoCompact } from './ui-auto-compact';
 import './ui-backdrop';
 import './ui-autorefresh';
 import './ui-google';
+import { renderSpaces } from './ui-spaces';
 import { icon } from './ui-common';
 import {
   attachSuggestions,
@@ -15,6 +16,7 @@ import {
 import {
   ACCENT_PRESETS,
   ACTIONS,
+  SLEEP_CHOICES,
   TINT_AMOUNT,
   activeTint,
   mixHex,
@@ -247,6 +249,7 @@ const CLOSE_ICON =
 
 const PRIVATE_ICON = icon('eyeOff');
 const REFRESH_ICON = icon('refresh', 'icon-sm');
+const SPLIT_ICON = icon('split', 'icon-sm');
 
 const tabList = $<HTMLUListElement>('#tabs');
 const tabElements = new Map<number, HTMLLIElement>();
@@ -294,6 +297,18 @@ function createTabElement(id: number) {
     window.terra.send('terra:auto-refresh-stop', id);
   });
 
+  // Split view: shows on both of its tabs; click to show them apart again.
+  const splitButton = document.createElement('button');
+  splitButton.className = 'tab-split';
+  splitButton.hidden = true;
+  splitButton.title = 'Close split view';
+  splitButton.ariaLabel = splitButton.title;
+  splitButton.innerHTML = SPLIT_ICON;
+  splitButton.addEventListener('click', (event) => {
+    event.stopPropagation();
+    window.terra.send('terra:split-end');
+  });
+
   const close = document.createElement('button');
   close.className = 'tab-close';
   close.title = 'Close tab';
@@ -303,7 +318,7 @@ function createTabElement(id: number) {
     window.browser.closeTab(id);
   });
 
-  item.append(icon, title, refresh, audio, close);
+  item.append(icon, title, splitButton, refresh, audio, close);
   item.addEventListener('contextmenu', (event) => {
     event.preventDefault();
     window.terra.send('terra:tab-menu', id);
@@ -429,6 +444,17 @@ function renderTabs(state: TabsState) {
 
   tabOrder = state.tabs.map((tab) => tab.id);
   activeTabId = state.activeTabId;
+  renderSpaces(state);
+  const split = state.split;
+  const inSplit = (id: number) =>
+    !!split && (split.left === id || split.right === id);
+  // The other page on screen next to the active one.
+  const partner =
+    split && state.activeTabId !== null && inSplit(state.activeTabId)
+      ? split.left === state.activeTabId
+        ? split.right
+        : split.left
+      : null;
 
   state.tabs.forEach((tab, index) => {
     let item = tabElements.get(tab.id);
@@ -457,6 +483,15 @@ function renderTabs(state: TabsState) {
     }
     item.querySelector<HTMLButtonElement>('.tab-refresh')!.hidden =
       !tab.autoRefresh;
+    item.querySelector<HTMLButtonElement>('.tab-split')!.hidden = !inSplit(
+      tab.id,
+    );
+    item.classList.toggle(
+      'split-partner',
+      tab.id === partner && !state.settingsOpen,
+    );
+    item.classList.toggle('asleep', tab.asleep);
+    if (tab.asleep) item.title += '\nAsleep: loads when you open it';
     renderTabIcon(item.querySelector<HTMLElement>('.tab-icon')!, tab);
 
     // Keep DOM order in sync without recreating elements.
@@ -572,6 +607,40 @@ window.terra.on('terra:slide-shot-clear', () => {
   pageShotImage.removeAttribute('src');
 });
 
+// ---- split view divider
+//
+// The 8px gap between the two pages is our UI: main says where it is, and
+// dragging it follows the mouse (main tracks the pointer, since it goes
+// over the pages, which are drawn above us).
+
+const splitHandle = $<HTMLDivElement>('#split-handle');
+window.terra.on<{ x: number; y: number; width: number; height: number } | null>(
+  'terra:split-handle',
+  (rect) => {
+    splitHandle.hidden = !rect;
+    if (!rect) return;
+    splitHandle.style.left = `${rect.x}px`;
+    splitHandle.style.top = `${rect.y}px`;
+    splitHandle.style.width = `${rect.width}px`;
+    splitHandle.style.height = `${rect.height}px`;
+  },
+);
+splitHandle.addEventListener('pointerdown', (event) => {
+  if (event.button !== 0) return;
+  event.preventDefault();
+  splitHandle.setPointerCapture(event.pointerId);
+  document.body.classList.add('split-dragging');
+  window.terra.send('terra:split-drag', true);
+});
+const endSplitDrag = () => {
+  if (!document.body.classList.contains('split-dragging')) return;
+  document.body.classList.remove('split-dragging');
+  window.terra.send('terra:split-drag', false);
+};
+// Let go anywhere over our UI; over a page, main hears it (input-event).
+window.addEventListener('pointerup', endSplitDrag, true);
+window.addEventListener('blur', endSplitDrag);
+
 // ---- first paint
 //
 // The window stays hidden until the UI looks like the user set it up: their
@@ -639,6 +708,19 @@ const showDividers = $<HTMLInputElement>('#setting-show-dividers');
 const forceDark = $<HTMLInputElement>('#setting-force-dark');
 const scrollTabs = $<HTMLInputElement>('#setting-scroll-tabs');
 const holdRefresh = $<HTMLInputElement>('#setting-hold-refresh');
+const sleepTabs = $<HTMLSelectElement>('#setting-sleep-tabs');
+for (const minutes of SLEEP_CHOICES) {
+  const label =
+    minutes === 0
+      ? 'Never'
+      : minutes < 60
+        ? `After ${minutes} minutes`
+        : `After ${minutes / 60} ${minutes === 60 ? 'hour' : 'hours'}`;
+  sleepTabs.add(new Option(label, String(minutes)));
+}
+sleepTabs.addEventListener('change', () =>
+  window.browser.updateSettings({ sleepTabsAfter: Number(sleepTabs.value) }),
+);
 const askDownload = $<HTMLInputElement>('#setting-ask-download');
 const smoothDividers = $<HTMLInputElement>('#setting-smooth-dividers');
 const smoothDividersRow = $<HTMLElement>('#smooth-dividers-row');
@@ -1687,6 +1769,7 @@ window.browser.onSettingsChanged((settings) => {
   forceDark.checked = settings.forceDark;
   scrollTabs.checked = settings.scrollTabs;
   holdRefresh.checked = settings.holdToAutoRefresh;
+  sleepTabs.value = String(settings.sleepTabsAfter);
   scrollTabsEnabled = settings.scrollTabs;
   windowAnimations.checked = settings.windowAnimations;
   askDownload.checked = settings.askDownloadLocation;
