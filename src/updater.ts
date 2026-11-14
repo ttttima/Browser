@@ -123,6 +123,8 @@ $key = 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Terra'
 $entry = Get-ItemProperty $key -ErrorAction SilentlyContinue
 if ($entry -and $entry.InstallLocation -eq ${quote(dir)}) { Set-ItemProperty $key -Name DisplayVersion -Value ${quote(update.version)} }
 Remove-Item $temp -Recurse -Force -ErrorAction SilentlyContinue
+# Windows keeps showing a cached copy of the old icon on the desktop and taskbar; ask it to redraw.
+Start-Process -FilePath (Join-Path $env:WINDIR 'System32\\ie4uinit.exe') -ArgumentList '-show' -WindowStyle Hidden -Wait -ErrorAction SilentlyContinue
 Remove-Item ${quote(update.file)} -Force -ErrorAction SilentlyContinue
 Start-Process -FilePath ${quote(exe)}
 `;
