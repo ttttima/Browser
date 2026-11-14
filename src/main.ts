@@ -196,6 +196,9 @@ interface Tab {
   favicon: string | null;
   /** URL of a page that failed to load (we show an error page instead). */
   failedUrl: string | null;
+  /** The URL that keeps failing, and how often in a row (for retryDelay). */
+  retryUrl: string | null;
+  failures: number;
   /** True until the first website loads: we show our search page instead. */
   isNewTab: boolean;
   /** Give focus back to the address bar once the first page has loaded. */
@@ -486,7 +489,17 @@ function searchUrl(text: string) {
   return SEARCH_ENGINES[settings.searchEngine].url + encodeURIComponent(text);
 }
 
-function errorPage(url: string, description: string) {
+/**
+ * Network errors that may go away by themselves (no internet, a name that
+ * didn't resolve, a timeout...): their error page tries again on its own.
+ */
+const RETRY_ERRORS = new Set([
+  -7, -21, -100, -101, -102, -104, -105, -106, -109, -118, -130, -137, -324,
+]);
+/** Waits between tries: 2 s, 4 s, 8 s... at most a minute. */
+const retryDelay = (failures: number) => Math.min(2000 * 2 ** failures, 60_000);
+
+function errorPage(url: string, description: string, retryIn: number | null) {
   const escape = (text: string) =>
     text.replace(
       /[&<>"']/g,
@@ -499,10 +512,36 @@ function errorPage(url: string, description: string) {
           "'": '&#39;',
         })[c]!,
     );
+  // "Try again" goes back to the site; with retryIn the page also tries by
+  // itself after that long, and right away when the computer is back online.
+  const canRetry = /^(https?|file):/i.test(url);
+  const retry = canRetry
+    ? `<p class="actions"><a class="button" href="${escape(url)}">Try again</a><span id="note"></span></p>
+<script>
+const url = ${JSON.stringify(url).replace(/</g, '\\u003c')};
+const go = () => location.replace(url);
+addEventListener('online', go);
+const retryIn = ${retryIn ?? 'null'};
+if (retryIn) {
+  const at = Date.now() + retryIn;
+  const note = document.getElementById('note');
+  const tick = () => {
+    const left = Math.ceil((at - Date.now()) / 1000);
+    if (left <= 0) return go();
+    note.textContent = 'Trying again in ' + left + ' s';
+    setTimeout(tick, 250);
+  };
+  tick();
+}
+</script>`
+    : '';
   const html = `<!doctype html><meta charset="utf-8"><title>Can't reach this page</title>
 <style>body{font-family:system-ui,sans-serif;background:#111318;color:#e0e0e0;display:grid;place-items:center;height:100vh;margin:0}
-main{max-width:520px;padding:24px}h1{font-size:22px}code{color:#9fb4ff;word-break:break-all}p{color:#a0a4ad}</style>
-<main><h1>Can't reach this page</h1><p><code>${escape(url)}</code></p><p>${escape(description)}</p></main>`;
+main{max-width:520px;padding:24px}h1{font-size:22px}code{color:#9fb4ff;word-break:break-all}p{color:#a0a4ad}
+.actions{display:flex;align-items:center;gap:12px;margin-top:24px}
+.button{display:inline-flex;align-items:center;height:32px;padding:0 12px;border-radius:8px;background:#2a2f3a;color:#e0e0e0;font-size:13px;font-weight:600;text-decoration:none;transition:background 150ms}
+.button:hover{background:#353b48}#note{font-size:12px}</style>
+<main><h1>Can't reach this page</h1><p><code>${escape(url)}</code></p><p>${escape(description)}</p>${retry}</main>`;
   return `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
 }
 
@@ -1118,6 +1157,8 @@ function createTab(
     title: '',
     favicon: null,
     failedUrl: null,
+    retryUrl: null,
+    failures: 0,
     isNewTab: !url,
     focusAddressOnLoad: false,
     historyId: null,
@@ -1542,6 +1583,11 @@ function wireTab(tab: Tab) {
   });
 
   contents.on('did-finish-load', () => {
+    // A real page loaded: the next failure starts the waits over.
+    if (!contents.getURL().startsWith('data:')) {
+      tab.retryUrl = null;
+      tab.failures = 0;
+    }
     if (!tab.focusAddressOnLoad) return;
     tab.focusAddressOnLoad = false;
     if (isActive()) focusAddressBar();
@@ -1576,8 +1622,13 @@ function wireTab(tab: Tab) {
       // -3 = ERR_ABORTED: the load was replaced by another one, not an error.
       if (!isMainFrame || errorCode === -3) return;
       tab.failedUrl = validatedURL;
+      tab.failures = tab.retryUrl === validatedURL ? tab.failures + 1 : 0;
+      tab.retryUrl = validatedURL;
+      const retryIn = RETRY_ERRORS.has(errorCode)
+        ? retryDelay(tab.failures)
+        : null;
       contents
-        .loadURL(errorPage(validatedURL, errorDescription))
+        .loadURL(errorPage(validatedURL, errorDescription, retryIn))
         .catch(() => {});
     },
   );
@@ -1751,9 +1802,13 @@ function goForward() {
 }
 
 function reload(ignoreCache = false) {
-  const contents = activeContents();
-  if (!contents) return;
-  if (ignoreCache) contents.reloadIgnoringCache();
+  const tab = activeTab();
+  const contents = pageOf(tab);
+  if (!tab || !contents) return;
+  // On an error page, reload the site that failed, not the error page.
+  if (tab.failedUrl && contents.getURL().startsWith('data:')) {
+    contents.loadURL(tab.failedUrl).catch(() => {});
+  } else if (ignoreCache) contents.reloadIgnoringCache();
   else contents.reload();
 }
 
